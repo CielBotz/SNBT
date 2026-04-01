@@ -22,7 +22,7 @@ Berdasarkan tren SNBT 2024-2025, diprediksi tahun 2026 akan lebih menekankan pad
     summary: 'Prediksi 2026 menekankan pada interpretasi data kompleks, grafik ganda, dan logika statistik terapan.',
     sources: [
       { name: 'Analisis Tren SNBT 2025', url: 'https://bppp.kemdikbud.go.id/' },
-      { name: 'Pusat Asesmen Pendidikan', url: 'https://pusmendik.kemdikbud.go.id/' }
+      { name: 'EduPath Analytics', url: 'https://pusmendik.kemdikbud.go.id/' }
     ]
   },
   {

@@ -71,6 +71,37 @@ const DifficultyBadge = ({ difficulty }: { difficulty: Difficulty }) => {
   );
 };
 
+const QuestionTimer = ({ isSubmitted, currentIdx }: { isSubmitted: boolean; currentIdx: number }) => {
+  const [time, setTime] = useState(0);
+
+  useEffect(() => {
+    setTime(0);
+  }, [currentIdx]);
+
+  useEffect(() => {
+    let interval: any;
+    if (!isSubmitted) {
+      interval = setInterval(() => {
+        setTime(t => t + 1);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isSubmitted, currentIdx]);
+
+  return (
+    <div className="flex items-center gap-3 text-xs font-mono text-slate-400 bg-slate-50 px-4 py-2 rounded-full border border-slate-100">
+      <Clock size={14} className="text-slate-300" />
+      Waktu Soal: {formatTime(time)}
+    </div>
+  );
+};
+
+const QuestionArea = React.memo(({ question, session, answerQuestion }: { 
+  question: Question; 
+  session: QuizSession; 
+  answerQuestion: (answer: any) => void;
+}) => {
+
 // --- Main App ---
 
 export default function App() {
@@ -91,30 +122,23 @@ export default function App() {
   const [selectedReport, setSelectedReport] = useState<AssessmentReport | null>(null);
   const [selectedMaterial, setSelectedMaterial] = useState<StudyMaterial | null>(null);
   const [showSummary, setShowSummary] = useState(false);
-  const [questionTimer, setQuestionTimer] = useState(0);
 
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [showSubTestConfirm, setShowSubTestConfirm] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
 
-  // Question Timer
-  useEffect(() => {
-    let interval: any;
-    if (session && !session.isSubmitted) {
-      interval = setInterval(() => {
-        setQuestionTimer(t => t + 1);
-      }, 1000);
+  const getModeName = (mode: string) => {
+    switch(mode) {
+      case 'mini': return 'Mini Tryout';
+      case 'daily': return 'Latihan Harian';
+      case 'tryout': return 'Tryout Full';
+      case 'category': return 'Latihan Kategori';
+      default: return mode;
     }
-    return () => clearInterval(interval);
-  }, [session?.isSubmitted, session?.currentIdx]);
-
-  useEffect(() => {
-    setQuestionTimer(0);
-  }, [session?.currentIdx]);
+  };
 
   const handleStart = (mode: 'tryout' | 'mini' | 'daily' | 'category', category?: Category) => {
     startSession(mode, category);
-    setQuestionTimer(0);
     setView('quiz');
   };
 
@@ -130,164 +154,153 @@ export default function App() {
   // --- Views ---
 
   const DashboardView = () => (
-    <div className="max-w-5xl mx-auto p-6 space-y-8 pb-24">
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-        <div>
-          <h1 className="text-4xl font-black text-slate-900 tracking-tight">SNBT <span className="text-indigo-600">2026</span></h1>
-          <p className="text-slate-500 font-medium">Platform Latihan & Simulasi IRT Terakurat</p>
-        </div>
-        <div className="flex gap-4 w-full md:w-auto">
-          <div className="flex-1 md:flex-none bg-white px-6 py-3 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-3">
-            <div className="bg-orange-100 p-2 rounded-lg">
-              <Flame className="text-orange-500 w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Streak</p>
-              <p className="font-black text-slate-900 leading-none">{progress.streak} Hari</p>
-            </div>
-          </div>
-          <div className="flex-1 md:flex-none bg-white px-6 py-3 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-3">
-            <div className="bg-indigo-100 p-2 rounded-lg">
-              <Trophy className="text-indigo-500 w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Mastery</p>
-              <p className="font-black text-slate-900 leading-none">{progress.completedIds.length} Soal</p>
-            </div>
-          </div>
-        </div>
-      </header>
-
+    <div className="max-w-6xl mx-auto p-6 space-y-10 pb-32">
+      {/* Hero Section - Bento Style */}
       <div className="grid md:grid-cols-3 gap-6">
-        <div className="md:col-span-2 space-y-6">
-          <div className="relative bg-gradient-to-br from-indigo-600 to-violet-700 rounded-[48px] p-10 text-white overflow-hidden shadow-2xl shadow-indigo-200 group">
-            <img 
-              src="https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&q=80&w=2070" 
-              alt="Dashboard Hero" 
-              className="absolute inset-0 w-full h-full object-cover opacity-20 transition-transform duration-700 group-hover:scale-110"
-              referrerPolicy="no-referrer"
-            />
-            <div className="relative z-10 space-y-8">
-              <div className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-md px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.2em]">
-                <Zap size={14} className="text-yellow-300" /> Simulasi IRT Aktif
-              </div>
-              <div className="space-y-4 max-w-lg">
-                <h2 className="text-5xl font-black leading-[0.9] tracking-tighter italic">SIAP MENEMBUS <br /><span className="text-indigo-200 underline decoration-indigo-400/50">PTN IMPIANMU?</span></h2>
-                <p className="text-indigo-100 text-lg font-medium opacity-90 leading-relaxed">Uji kemampuanmu dengan sistem penilaian IRT (Item Response Theory) yang digunakan pada UTBK resmi.</p>
-              </div>
+        <div className="md:col-span-2 bg-slate-900 rounded-[48px] p-12 text-white relative overflow-hidden shadow-2xl shadow-slate-200">
+          <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-indigo-600/20 rounded-full blur-[120px] -mr-32 -mt-32" />
+          <div className="absolute bottom-0 left-0 w-64 h-64 bg-violet-600/10 rounded-full blur-[80px] -ml-20 -mb-20" />
+          
+          <div className="relative z-10 space-y-8">
+            <div className="inline-flex items-center gap-3 bg-white/10 backdrop-blur-xl px-5 py-2 rounded-full text-[10px] font-black uppercase tracking-[0.3em] border border-white/10">
+              <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+              Persiapan SNBT 2026
+            </div>
+            
+            <div className="space-y-4">
+              <h1 className="text-6xl font-black leading-[1.05] tracking-tight">
+                Taklukkan <br />
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-violet-400">Kampus Impian.</span>
+              </h1>
+              <p className="text-slate-400 text-xl font-medium max-w-lg leading-relaxed">
+                Platform simulasi dengan sistem penilaian IRT terakurat untuk mengukur peluang lolos PTN favoritmu.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-4 pt-6">
               <button 
                 onClick={() => handleStart('tryout')}
-                className="bg-white text-indigo-600 px-10 py-5 rounded-[24px] font-black text-xl hover:bg-indigo-50 transition-all shadow-2xl shadow-indigo-900/20 flex items-center gap-3 group w-full md:w-auto justify-center"
+                className="bg-indigo-600 text-white px-10 py-5 rounded-[24px] font-black hover:bg-indigo-500 transition-all shadow-xl shadow-indigo-900/40 flex items-center gap-4 group text-sm uppercase tracking-widest"
               >
-                Mulai Full Tryout <ArrowRight className="group-hover:translate-x-2 transition-transform" />
+                Mulai Tryout Full
+                <ArrowRight size={20} className="group-hover:translate-x-2 transition-transform" />
+              </button>
+              <button 
+                onClick={() => setView('study')}
+                className="bg-white/5 backdrop-blur-md text-white border border-white/10 px-10 py-5 rounded-[24px] font-black hover:bg-white/10 transition-all text-sm uppercase tracking-widest"
+              >
+                Pelajari Materi
               </button>
             </div>
-            <div className="absolute -right-20 -bottom-20 w-96 h-96 bg-white/10 rounded-full blur-3xl" />
-            <div className="absolute right-12 top-12 opacity-20 group-hover:rotate-12 transition-transform duration-500">
-              <GraduationCap size={160} />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            {[
-              { id: 'daily', title: 'Daily Challenge', icon: Target, color: 'bg-rose-500', desc: '5 Soal Harian' },
-              { id: 'mini', title: 'Mini Test', icon: BookOpen, color: 'bg-indigo-500', desc: '10 Soal Cepat' },
-              { id: 'study', title: 'Belajar Mandiri', icon: School, color: 'bg-emerald-500', desc: 'Materi & Ringkasan' },
-            ].map(mode => (
-              <motion.button
-                key={mode.id}
-                whileHover={{ y: -4 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => mode.id === 'study' ? setView('study') : handleStart(mode.id as any)}
-                className={cn(
-                  "bg-white p-6 rounded-3xl border border-slate-200 shadow-sm text-left flex flex-col gap-4 group",
-                  mode.id === 'study' && "col-span-2 md:col-span-1"
-                )}
-              >
-                <div className={cn("w-12 h-12 rounded-2xl flex items-center justify-center text-white", mode.color)}>
-                  <mode.icon size={24} />
-                </div>
-                <div>
-                  <h3 className="font-bold text-lg text-slate-900">{mode.title}</h3>
-                  <p className="text-sm text-slate-500">{mode.desc}</p>
-                </div>
-              </motion.button>
-            ))}
           </div>
         </div>
 
-        <div className="space-y-6">
-          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-6">
-            <h3 className="font-black text-slate-900 flex items-center gap-2">
-              <TrendingUp size={18} className="text-indigo-600" /> Performa Saat Ini
-            </h3>
-            <div className="space-y-4">
-              {(Object.entries(progress.categoryStats) as [Category, { correct: number; total: number }][]).map(([cat, stats]) => (
-                <div key={cat} className="space-y-2">
-                  <div className="flex justify-between text-xs font-bold text-slate-500 uppercase tracking-wider">
-                    <span>{cat}</span>
-                    <span>{stats.total > 0 ? Math.round((stats.correct / stats.total) * 100) : 0}%</span>
-                  </div>
-                  <ProgressBar 
-                    current={stats.correct} 
-                    total={stats.total} 
-                    color={cat === 'TPS' ? 'bg-rose-500' : cat === 'Literasi Indonesia' ? 'bg-indigo-500' : cat === 'Literasi Inggris' ? 'bg-amber-500' : 'bg-emerald-500'} 
-                  />
-                </div>
-              ))}
-            </div>
-            <button 
-              onClick={() => setView('analytics')}
-              className="w-full py-3 rounded-xl border-2 border-slate-100 text-slate-600 font-bold text-sm hover:bg-slate-50 transition-colors"
-            >
-              Lihat Detail Analisis
-            </button>
+        <div className="bg-white rounded-[48px] p-10 border border-slate-200 shadow-sm flex flex-col justify-between group hover:border-indigo-300 transition-all relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-8 opacity-[0.03] group-hover:opacity-[0.08] transition-opacity">
+            <Flame size={180} />
           </div>
-
-          {progress.reports.length > 0 && (
-            <div className="bg-slate-900 rounded-3xl p-6 text-white space-y-4">
-              <h3 className="font-black flex items-center gap-2">
-                <Award size={18} className="text-yellow-400" /> Skor Terakhir
-              </h3>
-              <div className="flex items-end gap-2">
-                <span className="text-4xl font-black">{Math.round(progress.reports[0].totalScore)}</span>
-                <span className="text-slate-400 text-sm mb-1">/ 1000</span>
-              </div>
-              <div className="flex justify-between text-xs font-bold text-slate-400 uppercase tracking-widest">
-                <span>Rank: #{progress.reports[0].nationalRank}</span>
-                <span>Top {Math.round(progress.reports[0].percentile)}%</span>
-              </div>
-              <button 
-                onClick={() => handleViewReport(progress.reports[0])}
-                className="w-full bg-white/10 hover:bg-white/20 py-3 rounded-xl text-sm font-bold transition-colors"
-              >
-                Buka Assessment Report
-              </button>
+          <div className="space-y-6 relative z-10">
+            <div className="w-16 h-16 bg-orange-50 rounded-[20px] flex items-center justify-center group-hover:scale-110 transition-transform shadow-sm border border-orange-100">
+              <Flame className="text-orange-500 w-8 h-8" />
             </div>
-          )}
+            <div className="space-y-2">
+              <h3 className="text-3xl font-black text-slate-900">Belajar Rutin</h3>
+              <p className="text-slate-500 font-medium leading-relaxed">
+                Pertahankan streak belajarmu untuk mendapatkan poin tambahan.
+              </p>
+            </div>
+          </div>
+          <div className="pt-8 border-t border-slate-100 flex items-center justify-between relative z-10">
+            <div>
+              <p className="text-[10px] text-slate-400 uppercase font-black tracking-[0.2em]">Streak Saat Ini</p>
+              <p className="text-4xl font-black text-slate-900 mt-1">{progress.streak} Hari</p>
+            </div>
+            <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
+              <TrendingUp className="text-indigo-600" size={28} />
+            </div>
+          </div>
         </div>
       </div>
 
+      {/* Quick Stats & Actions */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+        {[
+          { label: 'Soal Terjawab', value: progress.completedIds.length, icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-50' },
+          { label: 'Rata-rata Skor', value: progress.reports.length > 0 ? Math.round(progress.reports.reduce((acc, r) => acc + r.totalScore, 0) / progress.reports.length) : 0, icon: Trophy, color: 'text-amber-500', bg: 'bg-amber-50' },
+          { label: 'Materi Dikuasai', value: `${Math.round((Object.keys(progress.materialMastery).length / 20) * 100)}%`, icon: GraduationCap, color: 'text-indigo-500', bg: 'bg-indigo-50' },
+          { label: 'Peringkat Nasional', value: progress.reports.length > 0 ? `#${progress.reports[0].nationalRank}` : '-', icon: Award, color: 'text-violet-500', bg: 'bg-violet-50' },
+        ].map((stat, idx) => (
+          <div key={idx} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-3 hover:shadow-md transition-all">
+            <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center", stat.bg)}>
+              <stat.icon className={stat.color} size={20} />
+            </div>
+            <div>
+              <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest">{stat.label}</p>
+              <p className="text-xl font-black text-slate-900">{stat.value}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Main Features */}
       <section className="space-y-6">
-        <h3 className="text-xl font-black text-slate-900">Latihan per Materi</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3">
+            <div className="bg-indigo-600 w-2 h-8 rounded-full" />
+            Pilih Mode Latihan
+          </h2>
+        </div>
+        <div className="grid md:grid-cols-3 gap-6">
           {[
-            { id: 'TPS', title: 'TPS', icon: Target, color: 'bg-rose-500' },
-            { id: 'Literasi Indonesia', title: 'Lit. Indonesia', icon: BookOpen, color: 'bg-indigo-500' },
+            { id: 'mini', title: 'Mini Tryout', desc: '10 Soal campuran untuk latihan cepat 15 menit.', icon: Zap, color: 'bg-amber-500', shadow: 'shadow-amber-200' },
+            { id: 'daily', title: 'Latihan Harian', desc: '5 Soal adaptif berdasarkan kelemahanmu.', icon: Target, color: 'bg-indigo-500', shadow: 'shadow-indigo-200' },
+            { id: 'study', title: 'Belajar Mandiri', desc: 'Pahami konsep materi secara mendalam.', icon: BookOpen, color: 'bg-emerald-500', shadow: 'shadow-emerald-200' },
+          ].map((feature) => (
+            <motion.button
+              key={feature.id}
+              whileHover={{ y: -8 }}
+              onClick={() => feature.id === 'study' ? setView('study') : handleStart(feature.id as any)}
+              className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-sm text-left space-y-6 group hover:border-indigo-300 transition-all"
+            >
+              <div className={cn("w-16 h-16 rounded-3xl flex items-center justify-center text-white shadow-2xl", feature.color, feature.shadow)}>
+                <feature.icon size={32} />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-xl font-black text-slate-900">{feature.title}</h3>
+                <p className="text-slate-500 text-sm font-medium leading-relaxed">{feature.desc}</p>
+              </div>
+              <div className="pt-4 flex items-center gap-2 text-indigo-600 font-black text-xs uppercase tracking-widest group-hover:gap-4 transition-all">
+                Mulai Sekarang <ArrowRight size={16} />
+              </div>
+            </motion.button>
+          ))}
+        </div>
+      </section>
+
+      {/* Category Selection */}
+      <section className="space-y-6">
+        <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3">
+          <div className="bg-violet-600 w-2 h-8 rounded-full" />
+          Fokus Per Kategori
+        </h2>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+          {[
+            { id: 'TPS', title: 'TPS', icon: LayoutGrid, color: 'bg-blue-500' },
+            { id: 'Literasi Indonesia', title: 'Lit. Indonesia', icon: BookOpen, color: 'bg-rose-500' },
             { id: 'Literasi Inggris', title: 'Lit. Inggris', icon: Clock, color: 'bg-amber-500' },
             { id: 'Penalaran Matematika', title: 'Pen. Matematika', icon: BarChart3, color: 'bg-emerald-500' },
           ].map(cat => (
             <motion.button
               key={cat.id}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
               onClick={() => handleStart('category', cat.id as Category)}
-              className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm text-center flex flex-col items-center gap-3 group"
+              className="bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm text-center flex flex-col items-center gap-4 group hover:bg-slate-50 transition-all"
             >
-              <div className={cn("w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-lg", cat.color)}>
-                <cat.icon size={28} />
+              <div className={cn("w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-lg group-hover:rotate-6 transition-transform", cat.color)}>
+                <cat.icon size={32} />
               </div>
-              <h3 className="font-bold text-slate-900">{cat.title}</h3>
+              <h3 className="font-black text-slate-900 uppercase tracking-widest text-xs">{cat.title}</h3>
             </motion.button>
           ))}
         </div>
@@ -299,42 +312,42 @@ export default function App() {
     if (!session || !currentQuestion) return null;
 
     return (
-      <div className="min-h-screen bg-[#f3f4f6] flex flex-col font-sans">
-        {/* Header CBT Resmi Style */}
-        <nav className="bg-[#2b3e50] text-white px-6 py-3 flex justify-between items-center sticky top-0 z-50 shadow-md">
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-3">
-              <div className="bg-white p-1.5 rounded-lg">
-                <School size={24} className="text-[#2b3e50]" />
+      <div className="min-h-screen bg-[#f8fafc] flex flex-col font-sans">
+        {/* Header CBT Resmi Style - Enhanced */}
+        <nav className="bg-[#1e293b] text-white px-6 py-4 flex justify-between items-center sticky top-0 z-50 shadow-xl">
+          <div className="flex items-center gap-8">
+            <div className="flex items-center gap-4">
+              <div className="bg-white p-2 rounded-xl shadow-inner">
+                <School size={28} className="text-[#1e293b]" />
               </div>
               <div className="flex flex-col">
-                <span className="font-black text-sm tracking-widest uppercase">SIMULASI SNBT 2026</span>
-                <span className="text-[10px] text-slate-300 font-bold uppercase tracking-wider">Pusat Asesmen Pendidikan</span>
+                <span className="font-black text-base tracking-[0.15em] uppercase leading-none">SIMULASI SNBT 2026</span>
+                <span className="text-[10px] text-indigo-300 font-black uppercase tracking-[0.2em] mt-1">EduPath Analytics Platform</span>
               </div>
             </div>
-            <div className="h-8 w-px bg-slate-600/50 mx-2" />
-            <div className="flex flex-col">
-              <span className="font-bold text-xs text-indigo-300 uppercase tracking-widest">
-                {currentSubTest ? currentSubTest.name : session.mode}
+            <div className="h-10 w-px bg-slate-700 hidden md:block" />
+            <div className="hidden md:flex flex-col">
+              <span className="font-black text-xs text-indigo-400 uppercase tracking-widest">
+                {currentSubTest ? currentSubTest.name : (session.selectedCategory || getModeName(session.mode))}
               </span>
               {currentSubTest && (
-                <span className="text-[10px] text-slate-400 font-medium">
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">
                   Sub-tes {session.currentSubTestIdx! + 1} dari {session.subTests!.length}
                 </span>
               )}
             </div>
           </div>
 
-          <div className="flex items-center gap-8">
-            <div className="flex items-center gap-4 bg-[#1e2b38] px-5 py-2 rounded-xl border border-slate-700">
+          <div className="flex items-center gap-10">
+            <div className="flex items-center gap-5 bg-[#0f172a] px-6 py-3 rounded-2xl border border-slate-800 shadow-inner">
               <div className="flex flex-col items-center">
-                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">SISA WAKTU</span>
+                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">SISA WAKTU</span>
                 <div className={cn(
-                  "flex items-center gap-2 font-mono",
-                  currentSubTest && currentSubTest.remainingTime < 60 ? "text-red-400 animate-pulse" : "text-white"
+                  "flex items-center gap-3 font-mono",
+                  currentSubTest && currentSubTest.remainingTime < 60 ? "text-rose-500 animate-pulse" : "text-white"
                 )}>
-                  <Clock size={16} />
-                  <span className="text-xl font-black leading-none">
+                  <Clock size={20} className={currentSubTest && currentSubTest.remainingTime < 60 ? "text-rose-500" : "text-indigo-400"} />
+                  <span className="text-2xl font-black leading-none tracking-tighter">
                     {currentSubTest ? formatTime(currentSubTest.remainingTime) : '00:00'}
                   </span>
                 </div>
@@ -350,7 +363,7 @@ export default function App() {
                     setShowSubmitConfirm(true);
                   }
                 }}
-                className="bg-[#e67e22] text-white px-8 py-2.5 rounded-xl font-black hover:bg-[#d35400] transition-all text-sm uppercase tracking-widest shadow-lg shadow-orange-900/20"
+                className="bg-[#f59e0b] text-slate-900 px-10 py-3 rounded-2xl font-black hover:bg-[#d97706] transition-all text-xs uppercase tracking-[0.2em] shadow-lg shadow-amber-900/20 active:scale-95"
               >
                 {session.mode === 'tryout' && session.currentSubTestIdx !== undefined && session.subTests && session.currentSubTestIdx < session.subTests.length - 1 
                   ? 'SELESAI SUB-TES' 
@@ -461,147 +474,14 @@ export default function App() {
           <div className="flex flex-col bg-white border-r border-slate-200">
             <div className="flex-1 p-8 md:p-12 space-y-10 overflow-y-auto">
               <AnimatePresence mode="wait">
-                <motion.div 
+                <QuestionArea 
                   key={currentQuestion.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={{ duration: 0.2 }}
-                  className="space-y-10"
-                >
-                  <div className="flex justify-between items-center border-b border-slate-100 pb-6">
-                    <div className="flex items-center gap-4">
-                      <div className="bg-[#2b3e50] text-white w-12 h-12 rounded-xl flex items-center justify-center font-black text-xl shadow-inner">
-                        {session.currentIdx + 1}
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">NOMOR SOAL</span>
-                        <div className="flex gap-2 items-center">
-                          <DifficultyBadge difficulty={currentQuestion.difficulty} />
-                          <span className="text-[10px] text-indigo-600 font-black uppercase tracking-widest">
-                            {currentQuestion.concept}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3 text-xs font-mono text-slate-400 bg-slate-50 px-4 py-2 rounded-full border border-slate-100">
-                      <Clock size={14} className="text-slate-300" />
-                      Waktu Soal: {formatTime(questionTimer)}
-                    </div>
-                  </div>
-
-                  <div className="prose prose-slate max-w-none">
-                    <h2 className="text-xl md:text-2xl font-medium text-slate-800 leading-relaxed">
-                      {currentQuestion.question}
-                    </h2>
-                  </div>
-
-                  <div className="space-y-4 max-w-3xl">
-                    {currentQuestion.type === 'multiple_choice' && currentQuestion.options?.map((option, idx) => {
-                      const isSelected = session.answers[currentQuestion.id] === idx;
-                      const isCorrect = currentQuestion.correctAnswer === idx;
-                      const showResult = session.isSubmitted;
-
-                      return (
-                        <button
-                          key={idx}
-                          disabled={session.isSubmitted}
-                          onClick={() => answerQuestion(idx)}
-                          className={cn(
-                            "w-full text-left p-5 rounded-xl border-2 transition-all flex items-center gap-5 group relative",
-                            !showResult && isSelected ? "border-[#3498db] bg-[#ebf5fb]" : "border-slate-100 hover:border-slate-300 hover:bg-slate-50",
-                            showResult && isCorrect ? "border-green-500 bg-green-50" : "",
-                            showResult && isSelected && !isCorrect ? "border-red-500 bg-red-50" : ""
-                          )}
-                        >
-                          <div className={cn(
-                            "w-10 h-10 rounded-lg flex items-center justify-center font-black text-sm flex-shrink-0 border-2 transition-all",
-                            !showResult && isSelected ? "bg-[#3498db] border-[#3498db] text-white" : "bg-white border-slate-200 text-slate-500 group-hover:border-slate-400",
-                            showResult && isCorrect ? "bg-green-500 border-green-500 text-white" : "",
-                            showResult && isSelected && !isCorrect ? "bg-red-500 border-red-500 text-white" : ""
-                          )}>
-                            {String.fromCharCode(65 + idx)}
-                          </div>
-                          <span className={cn(
-                            "text-slate-700 text-lg flex-1",
-                            isSelected && "font-bold text-slate-900"
-                          )}>
-                            {option}
-                          </span>
-                          {showResult && isCorrect && <CheckCircle2 className="text-green-500" size={24} />}
-                          {showResult && isSelected && !isCorrect && <XCircle className="text-red-500" size={24} />}
-                        </button>
-                      );
-                    })}
-                    {currentQuestion.type === 'complex_multiple_choice' && currentQuestion.complexOptions?.map((opt, idx) => {
-                      const currentAnswers = (session.answers[currentQuestion.id] as boolean[]) || Array(currentQuestion.complexOptions?.length).fill(null);
-                      const showResult = session.isSubmitted;
-
-                      return (
-                        <div key={idx} className="p-5 rounded-xl border border-slate-200 bg-white space-y-4 shadow-sm">
-                          <p className="text-slate-700 font-bold">{opt.statement}</p>
-                          <div className="flex gap-3">
-                            {[true, false].map((val) => (
-                              <button
-                                key={val ? 'yes' : 'no'}
-                                disabled={session.isSubmitted}
-                                onClick={() => {
-                                  const newAnswers = [...currentAnswers];
-                                  newAnswers[idx] = val;
-                                  answerQuestion(newAnswers);
-                                }}
-                                className={cn(
-                                  "flex-1 py-3 rounded-lg text-xs font-black border-2 transition-all tracking-widest",
-                                  currentAnswers[idx] === val 
-                                    ? (showResult ? (val === opt.correct ? "bg-green-500 border-green-500 text-white" : "bg-red-500 border-red-500 text-white") : "bg-[#3498db] border-[#3498db] text-white")
-                                    : "bg-white border-slate-200 text-slate-400 hover:border-slate-300"
-                                )}
-                              >
-                                {val ? 'BENAR' : 'SALAH'}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-
-                    {currentQuestion.type === 'short_answer' && (
-                      <div className="space-y-4">
-                        <div className="relative">
-                          <input 
-                            type="number"
-                            disabled={session.isSubmitted}
-                            value={session.answers[currentQuestion.id] ?? ''}
-                            onChange={(e) => answerQuestion(e.target.value)}
-                            placeholder="Masukkan jawaban angka..."
-                            className={cn(
-                              "w-full p-6 rounded-xl border-2 text-2xl font-black transition-all outline-none",
-                              session.isSubmitted 
-                                ? (Number(session.answers[currentQuestion.id]) === currentQuestion.shortAnswerCorrect ? "border-green-500 bg-green-50" : "border-red-500 bg-red-50")
-                                : "border-slate-200 focus:border-[#3498db] focus:ring-8 focus:ring-blue-50"
-                            )}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {session.isSubmitted && (
-                    <motion.div 
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="bg-indigo-50 border-l-4 border-indigo-500 p-6 space-y-3"
-                    >
-                      <div className="flex items-center gap-2 text-indigo-900 font-black text-sm uppercase tracking-widest">
-                        <Info size={18} />
-                        Pembahasan
-                      </div>
-                      <p className="text-indigo-800 leading-relaxed text-base">
-                        {currentQuestion.explanation}
-                      </p>
-                    </motion.div>
-                  )}
-                </motion.div>
+                  question={currentQuestion}
+                  session={session}
+                  answerQuestion={answerQuestion}
+                />
+              </AnimatePresence>
+            </div>
               </AnimatePresence>
             </div>
 
@@ -737,100 +617,134 @@ export default function App() {
     }));
 
     return (
-      <div className="min-h-screen bg-slate-50 pb-24">
-        <nav className="bg-white border-b border-slate-200 px-6 py-4 flex items-center gap-4 sticky top-0 z-10">
-          <button onClick={() => setView('dashboard')} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500">
-            <ChevronLeft size={24} />
-          </button>
-          <h1 className="text-xl font-black text-slate-900">Assessment Report</h1>
+      <div className="min-h-screen bg-[#f8fafc] pb-32">
+        <nav className="bg-white border-b border-slate-200 px-8 py-5 flex items-center justify-between sticky top-0 z-50 shadow-sm">
+          <div className="flex items-center gap-6">
+            <button 
+              onClick={() => setView('dashboard')} 
+              className="p-3 hover:bg-slate-50 border border-slate-200 rounded-2xl text-slate-600 transition-all shadow-sm hover:shadow-md"
+            >
+              <ChevronLeft size={24} />
+            </button>
+            <div>
+              <h1 className="text-2xl font-black text-slate-900 tracking-tight">Hasil Evaluasi Akademik</h1>
+              <p className="text-slate-500 text-[10px] font-black uppercase tracking-[0.2em] mt-0.5">EduPath Analytics Report</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 px-5 py-2 bg-indigo-50 rounded-2xl border border-indigo-100">
+            <Calendar size={18} className="text-indigo-600" />
+            <span className="text-sm font-black text-indigo-900">
+              {new Date(selectedReport.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+            </span>
+          </div>
         </nav>
 
-        <div className="max-w-5xl mx-auto p-6 space-y-8">
-          <div className="bg-white rounded-[40px] p-10 border border-slate-200 shadow-xl shadow-slate-200/50 flex flex-col md:flex-row gap-10 items-center">
-            <div className="relative">
-              <div className="w-48 h-48 rounded-full border-[12px] border-indigo-50 flex flex-col items-center justify-center">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">IRT Score</span>
-                <span className="text-5xl font-black text-indigo-600">{Math.round(selectedReport.totalScore)}</span>
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">/ 1000</span>
+        <div className="max-w-6xl mx-auto p-8 space-y-10">
+          <div className="bg-slate-900 rounded-[56px] p-12 text-white border border-slate-800 shadow-2xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-indigo-600/10 rounded-full blur-[120px] -mr-48 -mt-48" />
+            
+            <div className="relative z-10 flex flex-col lg:flex-row gap-16 items-center">
+              <div className="relative group">
+                <div className="absolute inset-0 bg-indigo-500 blur-[40px] opacity-20 group-hover:opacity-40 transition-opacity" />
+                <div className="w-64 h-64 rounded-full border-[16px] border-white/5 flex flex-col items-center justify-center relative bg-slate-900/50 backdrop-blur-xl">
+                  <span className="text-[11px] font-black text-slate-400 uppercase tracking-[0.4em] mb-2">IRT Score</span>
+                  <span className="text-7xl font-black text-white tracking-tighter">{Math.round(selectedReport.totalScore)}</span>
+                  <div className="h-px w-24 bg-white/10 my-3" />
+                  <span className="text-[11px] font-black text-indigo-400 uppercase tracking-[0.4em]">Target: 800+</span>
+                </div>
+                <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 bg-yellow-400 text-slate-900 px-8 py-3 rounded-3xl font-black text-sm shadow-2xl border-4 border-slate-900">
+                  Top {Math.round(selectedReport.percentile)}% Nasional
+                </div>
               </div>
-              <div className="absolute -bottom-2 -right-2 bg-yellow-400 text-slate-900 px-4 py-2 rounded-2xl font-black text-xs shadow-lg">
-                Top {Math.round(selectedReport.percentile)}%
-              </div>
-            </div>
 
-            <div className="flex-1 grid grid-cols-2 md:grid-cols-3 gap-6 w-full">
-              <div className="space-y-1">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Peringkat Nasional</p>
-                <p className="text-2xl font-black text-slate-900">#{selectedReport.nationalRank.toLocaleString()}</p>
-                <p className="text-[10px] text-slate-400 font-medium">Dari {selectedReport.totalParticipants.toLocaleString()} peserta</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Potensi Lulus</p>
-                <p className="text-2xl font-black text-emerald-600">{selectedReport.totalScore > 650 ? 'Sangat Tinggi' : selectedReport.totalScore > 550 ? 'Tinggi' : 'Menengah'}</p>
-                <p className="text-[10px] text-slate-400 font-medium">Berdasarkan skor rata-rata PTN</p>
-              </div>
-              <div className="space-y-1 col-span-2 md:col-span-1">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Tanggal Tes</p>
-                <p className="text-2xl font-black text-slate-900">{new Date(selectedReport.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+              <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-10 w-full">
+                <div className="space-y-3 p-8 bg-white/5 rounded-[40px] border border-white/10 backdrop-blur-sm">
+                  <div className="flex items-center gap-3 text-slate-400">
+                    <Trophy size={18} />
+                    <p className="text-[10px] font-black uppercase tracking-[0.3em]">Peringkat Nasional</p>
+                  </div>
+                  <p className="text-4xl font-black text-white">#{selectedReport.nationalRank.toLocaleString()}</p>
+                  <p className="text-xs text-slate-500 font-medium">Dari {selectedReport.totalParticipants.toLocaleString()} peserta aktif</p>
+                </div>
+
+                <div className="space-y-3 p-8 bg-white/5 rounded-[40px] border border-white/10 backdrop-blur-sm">
+                  <div className="flex items-center gap-3 text-slate-400">
+                    <TrendingUp size={18} />
+                    <p className="text-[10px] font-black uppercase tracking-[0.3em]">Potensi Kelulusan</p>
+                  </div>
+                  <p className={cn(
+                    "text-4xl font-black",
+                    selectedReport.totalScore > 650 ? "text-emerald-400" : selectedReport.totalScore > 550 ? "text-amber-400" : "text-rose-400"
+                  )}>
+                    {selectedReport.totalScore > 650 ? 'Sangat Tinggi' : selectedReport.totalScore > 550 ? 'Tinggi' : 'Menengah'}
+                  </p>
+                  <p className="text-xs text-slate-500 font-medium">Analisis komparatif skor PTN 2025</p>
+                </div>
               </div>
             </div>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-8">
-            <div className="bg-white rounded-[40px] p-8 border border-slate-200 shadow-sm space-y-8">
-              <h3 className="text-xl font-black text-slate-900 flex items-center gap-3">
-                <div className="bg-rose-100 p-2 rounded-xl">
-                  <Target size={20} className="text-rose-600" />
-                </div>
-                Analisis Materi Uji
-              </h3>
-              <div className="h-80 w-full">
+          <div className="grid lg:grid-cols-2 gap-10">
+            <div className="bg-white rounded-[56px] p-10 border border-slate-200 shadow-sm space-y-10">
+              <div className="flex items-center justify-between">
+                <h3 className="text-2xl font-black text-slate-900 flex items-center gap-4">
+                  <div className="bg-rose-50 p-3 rounded-2xl">
+                    <Target size={24} className="text-rose-600" />
+                  </div>
+                  Peta Kekuatan Materi
+                </h3>
+              </div>
+              <div className="h-[400px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <RadarChart cx="50%" cy="50%" outerRadius="80%" data={masteryData}>
-                    <PolarGrid stroke="#e2e8f0" />
-                    <PolarAngleAxis dataKey="subject" tick={{ fill: '#64748b', fontSize: 10, fontWeight: 700 }} />
+                    <PolarGrid stroke="#f1f5f9" />
+                    <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 900 }} />
                     <Radar
                       name="Mastery"
                       dataKey="A"
                       stroke="#6366f1"
                       fill="#6366f1"
-                      fillOpacity={0.6}
+                      fillOpacity={0.5}
                     />
+                    <Tooltip contentStyle={{ borderRadius: '24px', border: 'none', boxShadow: '0 20px 50px rgba(0,0,0,0.1)' }} />
                   </RadarChart>
                 </ResponsiveContainer>
               </div>
             </div>
 
-            <div className="bg-white rounded-[40px] p-8 border border-slate-200 shadow-sm space-y-8">
-              <h3 className="text-xl font-black text-slate-900 flex items-center gap-3">
-                <div className="bg-indigo-100 p-2 rounded-xl">
-                  <School size={20} className="text-indigo-600" />
+            <div className="bg-white rounded-[56px] p-10 border border-slate-200 shadow-sm space-y-10">
+              <h3 className="text-2xl font-black text-slate-900 flex items-center gap-4">
+                <div className="bg-indigo-50 p-3 rounded-2xl">
+                  <School size={24} className="text-indigo-600" />
                 </div>
-                Rekomendasi PTN & Prodi
+                Rekomendasi Strategis
               </h3>
-              <div className="space-y-4">
+              <div className="space-y-6">
                 {selectedReport.recommendations.map((rec, idx) => (
-                  <div key={idx} className="p-6 rounded-3xl bg-slate-50 border border-slate-100 flex items-center justify-between group hover:bg-indigo-50 hover:border-indigo-100 transition-all">
-                    <div className="space-y-1">
-                      <h4 className="font-black text-slate-900">{rec.ptn}</h4>
-                      <p className="text-sm text-slate-500 font-bold">{rec.prodi}</p>
+                  <div key={idx} className="p-8 rounded-[40px] bg-slate-50 border border-slate-100 flex items-center justify-between group hover:bg-indigo-50 hover:border-indigo-200 transition-all shadow-sm hover:shadow-md">
+                    <div className="space-y-2">
+                      <h4 className="text-xl font-black text-slate-900">{rec.ptn}</h4>
+                      <p className="text-sm text-slate-500 font-black uppercase tracking-widest">{rec.prodi}</p>
                     </div>
                     <div className="text-right">
                       <div className={cn(
-                        "text-lg font-black",
+                        "text-3xl font-black tracking-tighter",
                         rec.chance > 70 ? "text-emerald-600" : rec.chance > 40 ? "text-amber-600" : "text-rose-600"
                       )}>
                         {rec.chance}%
                       </div>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Peluang Lolos</p>
+                      <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">Peluang</p>
                     </div>
                   </div>
                 ))}
               </div>
-              <div className="bg-indigo-600 rounded-3xl p-6 text-white">
-                <p className="text-xs font-bold uppercase tracking-widest opacity-70 mb-2">Tips Strategi</p>
-                <p className="text-sm font-medium leading-relaxed">
-                  Skor kamu sangat kuat di Penalaran Umum. Fokuslah meningkatkan Literasi Bahasa Inggris untuk memperluas pilihan prodi di universitas top.
+              <div className="bg-indigo-600 rounded-[40px] p-8 text-white shadow-xl shadow-indigo-100 relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-4 opacity-10">
+                  <Zap size={100} />
+                </div>
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-70 mb-4">Expert Advice</p>
+                <p className="text-lg font-medium leading-relaxed italic">
+                  "Skor kamu sangat kuat di Penalaran Umum. Fokuslah meningkatkan Literasi Bahasa Inggris untuk memperluas pilihan prodi di universitas top."
                 </p>
               </div>
             </div>
@@ -847,44 +761,107 @@ export default function App() {
       total: stats.total
     }));
 
+    const radarData = data.map(d => ({
+      subject: d.name,
+      A: d.accuracy,
+      fullMark: 100
+    }));
+
     return (
-      <div className="max-w-5xl mx-auto p-6 space-y-8 pb-24">
-        <header className="flex items-center gap-4">
-          <button onClick={() => setView('dashboard')} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500">
-            <ChevronLeft size={24} />
-          </button>
-          <h1 className="text-3xl font-black text-slate-900">Analisis Performa</h1>
+      <div className="max-w-6xl mx-auto p-6 space-y-10 pb-32">
+        <header className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <button onClick={() => setView('dashboard')} className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-600 hover:bg-slate-50 transition-colors shadow-sm">
+              <ChevronLeft size={24} />
+            </button>
+            <div>
+              <h1 className="text-3xl font-black text-slate-900 tracking-tight">Analisis Performa</h1>
+              <p className="text-slate-500 font-medium text-sm">Evaluasi mendalam kemampuanmu</p>
+            </div>
+          </div>
+          <div className="hidden md:flex items-center gap-3 bg-indigo-50 px-4 py-2 rounded-2xl border border-indigo-100">
+            <TrendingUp className="text-indigo-600" size={20} />
+            <span className="text-sm font-black text-indigo-700 uppercase tracking-wider">Progress Positif</span>
+          </div>
         </header>
 
-        <div className="grid md:grid-cols-2 gap-8">
-          <div className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-sm space-y-8">
-            <h3 className="font-black text-slate-800 flex items-center gap-3">
-              <div className="bg-indigo-50 p-2 rounded-xl">
-                <Target size={20} className="text-indigo-600" />
+        <div className="grid lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2 space-y-8">
+            <div className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-sm space-y-8">
+              <div className="flex items-center justify-between">
+                <h3 className="font-black text-slate-800 flex items-center gap-3">
+                  <div className="bg-indigo-50 p-2 rounded-xl">
+                    <Target size={20} className="text-indigo-600" />
+                  </div>
+                  Akurasi per Kategori
+                </h3>
               </div>
-              Akurasi per Kategori
-            </h3>
-            <div className="h-80 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={data} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                  <XAxis type="number" domain={[0, 100]} hide />
-                  <YAxis dataKey="name" type="category" width={120} fontSize={10} tick={{ fill: '#64748b', fontWeight: 700 }} />
-                  <Tooltip 
-                    cursor={{ fill: '#f8fafc' }}
-                    contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', padding: '12px' }}
-                  />
-                  <Bar dataKey="accuracy" radius={[0, 10, 10, 0]} barSize={32}>
-                    {data.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.accuracy > 70 ? '#10b981' : entry.accuracy > 40 ? '#6366f1' : '#ef4444'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              <div className="h-[400px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={data} layout="vertical" margin={{ left: 20, right: 40 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                    <XAxis type="number" domain={[0, 100]} hide />
+                    <YAxis dataKey="name" type="category" width={120} fontSize={10} tick={{ fill: '#64748b', fontWeight: 700 }} />
+                    <Tooltip 
+                      cursor={{ fill: '#f8fafc' }}
+                      contentStyle={{ borderRadius: '24px', border: 'none', boxShadow: '0 20px 50px rgba(0,0,0,0.1)', padding: '16px' }}
+                    />
+                    <Bar dataKey="accuracy" radius={[0, 12, 12, 0]} barSize={40}>
+                      {data.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.accuracy > 70 ? '#10b981' : entry.accuracy > 40 ? '#6366f1' : '#ef4444'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-sm space-y-8">
+              <h3 className="font-black text-slate-800 flex items-center gap-3">
+                <div className="bg-violet-50 p-2 rounded-xl">
+                  <BarChart3 size={20} className="text-violet-600" />
+                </div>
+                Radar Penguasaan Materi
+              </h3>
+              <div className="h-[400px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <RadarChart cx="50%" cy="50%" outerRadius="80%" data={radarData}>
+                    <PolarGrid stroke="#e2e8f0" />
+                    <PolarAngleAxis dataKey="subject" tick={{ fill: '#64748b', fontSize: 10, fontWeight: 700 }} />
+                    <Radar
+                      name="Mastery"
+                      dataKey="A"
+                      stroke="#6366f1"
+                      fill="#6366f1"
+                      fillOpacity={0.6}
+                    />
+                    <Tooltip contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 10px 25px rgba(0,0,0,0.1)' }} />
+                  </RadarChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           </div>
 
           <div className="space-y-8">
+            <div className="bg-slate-900 p-8 rounded-[40px] text-white space-y-6 shadow-2xl shadow-slate-200">
+              <h3 className="font-black text-xl flex items-center gap-3">
+                <Award className="text-yellow-400" /> Pencapaian
+              </h3>
+              <div className="space-y-4">
+                {[
+                  { label: 'Total Skor IRT', value: progress.reports.length > 0 ? Math.round(progress.reports[0].totalScore) : 0, sub: 'Skor Tertinggi' },
+                  { label: 'Soal Terjawab', value: progress.completedIds.length, sub: 'Dari 1000+ Soal' },
+                  { label: 'Akurasi Global', value: `${data.length > 0 ? Math.round(data.reduce((acc, d) => acc + d.accuracy, 0) / data.length) : 0}%`, sub: 'Rata-rata' },
+                ].map((item, idx) => (
+                  <div key={idx} className="bg-white/5 p-5 rounded-3xl border border-white/10">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{item.label}</p>
+                    <p className="text-3xl font-black mt-1">{item.value}</p>
+                    <p className="text-[10px] text-slate-500 font-bold mt-1 uppercase">{item.sub}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-sm space-y-6">
               <h3 className="font-black text-slate-800">Riwayat Tryout</h3>
               <div className="space-y-4">
@@ -900,13 +877,7 @@ export default function App() {
                       </p>
                       <p className="font-black text-slate-900">Score: {Math.round(report.totalScore)}</p>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <div className="text-right">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Percentile</p>
-                        <p className="font-black text-indigo-600">{Math.round(report.percentile)}%</p>
-                      </div>
-                      <ChevronRight size={20} className="text-slate-300 group-hover:text-indigo-400 transition-colors" />
-                    </div>
+                    <ChevronRight size={20} className="text-slate-300 group-hover:text-indigo-400 transition-colors" />
                   </button>
                 )) : (
                   <div className="text-center py-12 space-y-4">
@@ -937,47 +908,47 @@ export default function App() {
   });
 
   const StudyView = () => (
-    <div className="max-w-5xl mx-auto p-6 space-y-8 pb-24">
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div className="flex items-center gap-4">
+    <div className="max-w-6xl mx-auto p-6 space-y-10 pb-32">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-8">
+        <div className="flex items-center gap-5">
           <button 
             onClick={() => {
               if (selectedMaterial) setSelectedMaterial(null);
               else setView('dashboard');
             }}
-            className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+            className="p-4 bg-white border border-slate-200 rounded-3xl text-slate-600 hover:bg-slate-50 transition-all shadow-sm hover:shadow-md"
           >
             <ChevronLeft size={24} />
           </button>
           <div>
-            <h1 className="text-3xl font-black text-slate-900 tracking-tight italic">Belajar Mandiri</h1>
-            <p className="text-slate-500 font-medium">Pahami konsep secara mendalam</p>
+            <h1 className="text-4xl font-black text-slate-900 tracking-tight">Pustaka Belajar</h1>
+            <p className="text-slate-500 font-medium">Eksplorasi materi SNBT secara mendalam</p>
           </div>
         </div>
 
         {!selectedMaterial && (
-          <div className="flex flex-wrap gap-3">
-            <div className="space-y-1">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Kategori</label>
+          <div className="flex flex-wrap gap-4 bg-white p-2 rounded-[28px] border border-slate-200 shadow-sm">
+            <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 rounded-2xl border border-slate-100">
+              <LayoutGrid size={16} className="text-slate-400" />
               <select 
                 value={categoryFilter}
                 onChange={(e) => {
                   setCategoryFilter(e.target.value);
                   setConceptFilter('All');
                 }}
-                className="block w-full pl-3 pr-10 py-2 text-sm border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 rounded-xl bg-white font-bold text-slate-700 shadow-sm transition-all"
+                className="bg-transparent text-sm font-black text-slate-700 focus:outline-none cursor-pointer"
               >
-                {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                {categories.map(cat => <option key={cat} value={cat}>{cat === 'All' ? 'Semua Kategori' : cat}</option>)}
               </select>
             </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Konsep</label>
+            <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 rounded-2xl border border-slate-100">
+              <Target size={16} className="text-slate-400" />
               <select 
                 value={conceptFilter}
                 onChange={(e) => setConceptFilter(e.target.value)}
-                className="block w-full pl-3 pr-10 py-2 text-sm border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 rounded-xl bg-white font-bold text-slate-700 shadow-sm transition-all"
+                className="bg-transparent text-sm font-black text-slate-700 focus:outline-none cursor-pointer"
               >
-                {concepts.map(con => <option key={con} value={con}>{con}</option>)}
+                {concepts.map(con => <option key={con} value={con}>{con === 'All' ? 'Semua Konsep' : con}</option>)}
               </select>
             </div>
           </div>
@@ -985,126 +956,166 @@ export default function App() {
       </header>
 
       {!selectedMaterial ? (
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
           {filteredMaterials.map(material => (
             <motion.button
               key={material.id}
-              whileHover={{ y: -6, scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
+              whileHover={{ y: -10 }}
               onClick={() => setSelectedMaterial(material)}
-              className="bg-white p-8 rounded-[32px] border border-slate-200 shadow-sm hover:shadow-xl hover:border-indigo-200 text-left space-y-6 group transition-all duration-300 relative overflow-hidden"
+              className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-sm hover:shadow-2xl hover:border-indigo-300 text-left space-y-6 group transition-all duration-500 relative overflow-hidden"
             >
-              <div className="absolute top-0 right-0 w-24 h-24 bg-slate-50 rounded-bl-[64px] -mr-8 -mt-8 group-hover:bg-indigo-50 transition-colors" />
+              <div className="absolute top-0 right-0 w-32 h-32 bg-slate-50 rounded-bl-[80px] -mr-12 -mt-12 group-hover:bg-indigo-50 transition-colors" />
               
               <div className={cn(
-                "w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-lg relative z-10",
-                material.category === 'TPS' ? 'bg-rose-500' : material.category === 'Literasi Indonesia' ? 'bg-indigo-500' : material.category === 'Literasi Inggris' ? 'bg-amber-500' : 'bg-emerald-500'
+                "w-16 h-16 rounded-3xl flex items-center justify-center text-white shadow-xl relative z-10 group-hover:scale-110 transition-transform",
+                material.category === 'TPS' ? 'bg-rose-500 shadow-rose-200' : 
+                material.category === 'Literasi Indonesia' ? 'bg-indigo-500 shadow-indigo-200' : 
+                material.category === 'Literasi Inggris' ? 'bg-amber-500 shadow-amber-200' : 
+                'bg-emerald-500 shadow-emerald-200'
               )}>
-                <BookOpen size={28} />
+                <BookOpen size={32} />
               </div>
-              <div className="space-y-2 relative z-10">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{material.concept}</span>
-                <h3 className="text-xl font-black text-slate-900 leading-tight group-hover:text-indigo-600 transition-colors">{material.title}</h3>
+              <div className="space-y-3 relative z-10">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{material.category}</span>
+                  <div className="w-1 h-1 bg-slate-300 rounded-full" />
+                  <span className="text-[10px] font-black text-indigo-500 uppercase tracking-[0.2em]">{material.concept}</span>
+                </div>
+                <h3 className="text-2xl font-black text-slate-900 leading-tight group-hover:text-indigo-600 transition-colors">{material.title}</h3>
+                <p className="text-slate-500 text-sm font-medium line-clamp-2 leading-relaxed">
+                  {material.summary}
+                </p>
               </div>
-              <div className="flex items-center text-indigo-600 font-bold text-sm gap-2 relative z-10">
-                Mulai Belajar <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
+              <div className="pt-4 flex items-center text-indigo-600 font-black text-xs uppercase tracking-widest gap-2 relative z-10 group-hover:gap-4 transition-all">
+                Pelajari Materi <ArrowRight size={16} />
               </div>
             </motion.button>
           ))}
           {filteredMaterials.length === 0 && (
-            <div className="col-span-full py-20 text-center space-y-4">
-              <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-400">
-                <BookOpen size={40} />
+            <div className="col-span-full py-32 text-center space-y-6 bg-white rounded-[48px] border border-dashed border-slate-300">
+              <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mx-auto text-slate-300">
+                <Search size={48} />
               </div>
-              <p className="text-slate-500 font-bold">Tidak ada materi yang sesuai dengan filter.</p>
+              <div className="space-y-2">
+                <p className="text-xl font-black text-slate-900">Materi Tidak Ditemukan</p>
+                <p className="text-slate-500 font-medium">Coba sesuaikan filter kategori atau konsep pencarianmu.</p>
+              </div>
               <button 
                 onClick={() => { setCategoryFilter('All'); setConceptFilter('All'); }}
-                className="text-indigo-600 font-black text-sm uppercase tracking-widest hover:underline"
+                className="bg-slate-900 text-white px-8 py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-800 transition-all"
               >
-                Reset Filter
+                Reset Semua Filter
               </button>
             </div>
           )}
         </div>
       ) : (
         <motion.div 
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
-          className="space-y-8"
+          className="max-w-4xl mx-auto space-y-10"
         >
-          <div className="bg-white rounded-[40px] border border-slate-200 shadow-xl overflow-hidden">
-            <div className="bg-slate-900 p-8 md:p-12 text-white space-y-6">
-              <div className="flex flex-wrap gap-3">
-                <span className="px-4 py-1.5 bg-white/10 backdrop-blur-md rounded-full text-[10px] font-black uppercase tracking-widest border border-white/10">
-                  {selectedMaterial.category}
-                </span>
-                <span className="px-4 py-1.5 bg-indigo-500/20 backdrop-blur-md rounded-full text-[10px] font-black uppercase tracking-widest border border-indigo-500/20">
-                  {selectedMaterial.concept}
-                </span>
-              </div>
-              <h2 className="text-4xl md:text-5xl font-black leading-tight tracking-tight">{selectedMaterial.title}</h2>
-              
-              <div className="flex p-1.5 bg-white/10 backdrop-blur-md rounded-2xl w-fit">
-                <button 
-                  onClick={() => setShowSummary(false)}
-                  className={cn(
-                    "px-6 py-2.5 rounded-xl text-sm font-bold transition-all",
-                    !showSummary ? "bg-white text-slate-900 shadow-lg" : "text-white/60 hover:text-white"
-                  )}
-                >
-                  Materi Lengkap
-                </button>
-                <button 
-                  onClick={() => setShowSummary(true)}
-                  className={cn(
-                    "px-6 py-2.5 rounded-xl text-sm font-bold transition-all",
-                    showSummary ? "bg-white text-slate-900 shadow-lg" : "text-white/60 hover:text-white"
-                  )}
-                >
-                  Ringkasan
-                </button>
+          <div className="bg-white rounded-[48px] border border-slate-200 shadow-2xl overflow-hidden">
+            <div className="bg-slate-900 p-10 md:p-16 text-white space-y-8 relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl -mr-32 -mt-32" />
+              <div className="relative z-10 space-y-6">
+                <div className="flex flex-wrap gap-3">
+                  <span className="px-5 py-2 bg-white/10 backdrop-blur-md rounded-full text-[10px] font-black uppercase tracking-widest border border-white/10">
+                    {selectedMaterial.category}
+                  </span>
+                  <span className="px-5 py-2 bg-indigo-500/30 backdrop-blur-md rounded-full text-[10px] font-black uppercase tracking-widest border border-indigo-500/20 text-indigo-200">
+                    {selectedMaterial.concept}
+                  </span>
+                </div>
+                <h2 className="text-5xl md:text-6xl font-black leading-[1.1] tracking-tight">{selectedMaterial.title}</h2>
+                
+                <div className="flex p-1.5 bg-white/5 backdrop-blur-md rounded-[24px] w-fit border border-white/10">
+                  <button 
+                    onClick={() => setShowSummary(false)}
+                    className={cn(
+                      "px-8 py-3 rounded-[18px] text-sm font-black transition-all uppercase tracking-widest",
+                      !showSummary ? "bg-white text-slate-900 shadow-xl" : "text-white/60 hover:text-white"
+                    )}
+                  >
+                    Materi Lengkap
+                  </button>
+                  <button 
+                    onClick={() => setShowSummary(true)}
+                    className={cn(
+                      "px-8 py-3 rounded-[18px] text-sm font-black transition-all uppercase tracking-widest",
+                      showSummary ? "bg-white text-slate-900 shadow-xl" : "text-white/60 hover:text-white"
+                    )}
+                  >
+                    Ringkasan
+                  </button>
+                </div>
               </div>
             </div>
 
-            <div className="p-8 md:p-12">
-              <div className="prose prose-slate max-w-none">
+            <div className="p-10 md:p-16">
+              <div className="prose prose-slate max-w-none prose-headings:font-black prose-headings:tracking-tight prose-p:text-lg prose-p:leading-relaxed prose-li:text-lg">
                 {showSummary ? (
-                  <div className="bg-indigo-50 p-8 rounded-3xl border border-indigo-100">
-                    <div className="flex items-center gap-3 text-indigo-900 font-black mb-4">
-                      <Zap size={20} className="text-amber-500" />
-                      <h4 className="text-lg">Ringkasan Materi</h4>
+                  <div className="bg-indigo-50 p-10 rounded-[40px] border border-indigo-100 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-4 opacity-10">
+                      <Zap size={120} />
                     </div>
-                    <p className="text-indigo-800 text-lg leading-relaxed font-medium italic">
+                    <div className="flex items-center gap-4 text-indigo-900 font-black mb-6 relative z-10">
+                      <div className="bg-white p-3 rounded-2xl shadow-sm">
+                        <Zap size={24} className="text-amber-500" />
+                      </div>
+                      <h4 className="text-2xl">Key Takeaways</h4>
+                    </div>
+                    <p className="text-indigo-900 text-xl leading-relaxed font-medium italic relative z-10">
                       "{selectedMaterial.summary}"
                     </p>
                   </div>
                 ) : (
-                  <div className="text-slate-700 leading-relaxed text-lg space-y-6">
+                  <div className="text-slate-700 space-y-8">
                     <ReactMarkdown>{selectedMaterial.fullContent}</ReactMarkdown>
                   </div>
                 )}
               </div>
 
-              <div className="mt-12 pt-12 border-t border-slate-100 space-y-6">
-                <h4 className="font-black text-slate-900 flex items-center gap-2">
-                  <Search size={18} className="text-indigo-600" /> Sumber Belajar
-                </h4>
-                <div className="grid sm:grid-cols-2 gap-4">
+              <div className="mt-16 pt-16 border-t border-slate-100 space-y-8">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xl font-black text-slate-900 flex items-center gap-3">
+                    <div className="bg-slate-100 p-2 rounded-xl">
+                      <Search size={20} className="text-indigo-600" />
+                    </div>
+                    Referensi Terpercaya
+                  </h4>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-6">
                   {selectedMaterial.sources.map((source, idx) => (
                     <a 
                       key={idx}
                       href={source.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-indigo-200 hover:bg-indigo-50 transition-all group"
+                      className="flex items-center justify-between p-6 bg-slate-50 rounded-[32px] border border-slate-100 hover:border-indigo-300 hover:bg-indigo-50 transition-all group shadow-sm hover:shadow-md"
                     >
-                      <span className="font-bold text-slate-700 group-hover:text-indigo-700">{source.name}</span>
-                      <ArrowRight size={16} className="text-slate-400 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" />
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-slate-400 group-hover:text-indigo-600 transition-colors">
+                          <School size={20} />
+                        </div>
+                        <span className="font-black text-slate-700 group-hover:text-indigo-900">{source.name}</span>
+                      </div>
+                      <ArrowRight size={20} className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-2 transition-all" />
                     </a>
                   ))}
                 </div>
               </div>
             </div>
+          </div>
+
+          <div className="flex justify-center">
+            <button 
+              onClick={() => setSelectedMaterial(null)}
+              className="flex items-center gap-3 text-slate-400 font-black text-xs uppercase tracking-[0.3em] hover:text-indigo-600 transition-colors group"
+            >
+              <ChevronLeft size={20} className="group-hover:-translate-x-2 transition-transform" />
+              Kembali ke Daftar Materi
+            </button>
           </div>
         </motion.div>
       )}
