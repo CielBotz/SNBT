@@ -33,6 +33,16 @@ export interface Question {
   };
 }
 
+export interface StudyMaterial {
+  id: string;
+  concept: Concept;
+  category: Category;
+  title: string;
+  fullContent: string;
+  summary: string;
+  sources: { name: string; url: string }[];
+}
+
 export interface UserProgress {
   completedIds: string[];
   wrongIds: string[];

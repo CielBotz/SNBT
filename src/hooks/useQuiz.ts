@@ -58,11 +58,18 @@ export function useQuiz() {
             // Auto-advance to next sub-test or submit if last
             if (prev.currentSubTestIdx < prev.subTests.length - 1) {
               const nextIdx = prev.currentSubTestIdx + 1;
-              return {
-                ...prev,
-                currentSubTestIdx: nextIdx,
-                currentIdx: prev.subTests[nextIdx].questionIndices[0],
-              };
+              const nextSubTest = prev.subTests[nextIdx];
+              
+              if (nextSubTest && nextSubTest.questionIndices && nextSubTest.questionIndices.length > 0) {
+                return {
+                  ...prev,
+                  currentSubTestIdx: nextIdx,
+                  currentIdx: nextSubTest.questionIndices[0],
+                };
+              } else {
+                // If next sub-test is empty for some reason, try skipping it or submit
+                return { ...prev, isSubmitted: true };
+              }
             } else {
               // Submit automatically
               return { ...prev, isSubmitted: true };
@@ -108,10 +115,18 @@ export function useQuiz() {
           finalPool = [...finalPool, ...catPool.filter(q => !finalPool.some(fq => fq.id === q.id))];
         }
 
-        // If still too small, fallback to any unused questions
+        // If still too small, fallback to any questions (even used) to prevent empty sub-tests
         if (finalPool.length < config.count) {
-          const anyPool = QUESTIONS.filter(q => !usedIds.has(q.id));
-          finalPool = [...finalPool, ...anyPool.filter(q => !finalPool.some(fq => fq.id === q.id))];
+          const remainingNeeded = config.count - finalPool.length;
+          const otherPool = QUESTIONS.filter(q => !finalPool.some(fq => fq.id === q.id));
+          // Shuffle otherPool and take what's needed
+          const additional = [...otherPool].sort(() => Math.random() - 0.5).slice(0, remainingNeeded);
+          finalPool = [...finalPool, ...additional];
+        }
+
+        // Final safety check: if still empty (should only happen if QUESTIONS is empty), skip or fill with anything
+        if (finalPool.length === 0 && QUESTIONS.length > 0) {
+          finalPool = [QUESTIONS[Math.floor(Math.random() * QUESTIONS.length)]];
         }
         
         const shuffled = [...finalPool].sort(() => Math.random() - 0.5).slice(0, config.count);
@@ -119,13 +134,15 @@ export function useQuiz() {
         selectedQuestions.push(...shuffled);
         
         const indices = Array.from({ length: shuffled.length }, (_, i) => i + currentIdxOffset);
-        subTests?.push({
-          name: config.name,
-          questionIndices: indices,
-          timeLimit: config.time,
-          remainingTime: config.time,
-        });
-        currentIdxOffset += shuffled.length;
+        if (indices.length > 0) {
+          subTests?.push({
+            name: config.name,
+            questionIndices: indices,
+            timeLimit: config.time,
+            remainingTime: config.time,
+          });
+          currentIdxOffset += shuffled.length;
+        }
       });
     } else {
       const pool = category 
@@ -375,11 +392,15 @@ export function useQuiz() {
       
       if (prev.currentSubTestIdx < prev.subTests.length - 1) {
         const nextIdx = prev.currentSubTestIdx + 1;
-        return {
-          ...prev,
-          currentSubTestIdx: nextIdx,
-          currentIdx: prev.subTests[nextIdx].questionIndices[0],
-        };
+        const nextSubTest = prev.subTests[nextIdx];
+        
+        if (nextSubTest && nextSubTest.questionIndices && nextSubTest.questionIndices.length > 0) {
+          return {
+            ...prev,
+            currentSubTestIdx: nextIdx,
+            currentIdx: nextSubTest.questionIndices[0],
+          };
+        }
       }
       return prev;
     });

@@ -12,13 +12,11 @@ export function calculateIRTScore(results: { correct: boolean; irtParams: { diff
   results.forEach((r) => {
     const { difficulty, discrimination, guessing } = r.irtParams;
     
-    // Weight is higher for more difficult and more discriminating questions
-    // Normalized difficulty to 0-1 range for weighting (original is -3 to 3)
-    const normalizedDifficulty = (difficulty + 3) / 6;
-    
-    // In IRT, discrimination (a) is a multiplier for the difficulty-ability gap.
-    // We use it as a primary weight. Guessing (c) reduces the information value of a question.
-    const weight = discrimination * (1 + normalizedDifficulty) * (1 - guessing);
+    // Weight is higher for more discriminating questions and more difficult ones.
+    // Guessing reduces the weight because it makes the question less reliable.
+    // We use a logistic-like weighting for difficulty to emphasize hard questions.
+    const difficultyWeight = 1 / (1 + Math.exp(-difficulty));
+    const weight = discrimination * (1 - guessing) * (0.5 + difficultyWeight);
 
     if (r.correct) {
       weightedSum += weight;
