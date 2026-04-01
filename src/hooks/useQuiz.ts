@@ -51,45 +51,38 @@ export function useQuiz() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
   }, [progress]);
 
-  // Timer logic for sub-tests
+  // Timer logic for sub-tests — check expiry only, no per-second state update
   useEffect(() => {
     if (session && !session.isSubmitted && session.subTests && session.currentSubTestIdx !== undefined) {
+      const currentSubTest = session.subTests[session.currentSubTestIdx];
+      if (!currentSubTest || currentSubTest.expiresAt === 0) return;
+
       timerRef.current = setInterval(() => {
         setSession(prev => {
           if (!prev || prev.isSubmitted || prev.currentSubTestIdx === undefined || !prev.subTests) return prev;
-          
-          const currentSubTest = prev.subTests[prev.currentSubTestIdx];
-          if (currentSubTest.remainingTime <= 0) {
-            // Auto-advance to next sub-test or submit if last
-            if (prev.currentSubTestIdx < prev.subTests.length - 1) {
-              const nextIdx = prev.currentSubTestIdx + 1;
-              const nextSubTest = prev.subTests[nextIdx];
-              
-              if (nextSubTest && nextSubTest.questionIndices && nextSubTest.questionIndices.length > 0) {
-                return {
-                  ...prev,
-                  currentSubTestIdx: nextIdx,
-                  currentIdx: nextSubTest.questionIndices[0],
-                };
-              } else {
-                // If next sub-test is empty for some reason, try skipping it or submit
-                return { ...prev, isSubmitted: true };
-              }
-            } else {
-              // Submit automatically
-              return { ...prev, isSubmitted: true };
+
+          const subTest = prev.subTests[prev.currentSubTestIdx];
+          if (!subTest || subTest.expiresAt === 0 || Date.now() < subTest.expiresAt) return prev;
+
+          // Time is up — auto-advance or submit
+          if (prev.currentSubTestIdx < prev.subTests.length - 1) {
+            const nextIdx = prev.currentSubTestIdx + 1;
+            const nextSubTest = prev.subTests[nextIdx];
+            if (nextSubTest && nextSubTest.questionIndices.length > 0) {
+              const updatedSubTests = prev.subTests.map((st, i) =>
+                i === nextIdx ? { ...st, expiresAt: Date.now() + st.timeLimit * 1000 } : st
+              );
+              return {
+                ...prev,
+                subTests: updatedSubTests,
+                currentSubTestIdx: nextIdx,
+                currentIdx: nextSubTest.questionIndices[0],
+              };
             }
           }
-
-          const updatedSubTests = [...prev.subTests];
-          updatedSubTests[prev.currentSubTestIdx] = {
-            ...currentSubTest,
-            remainingTime: currentSubTest.remainingTime - 1,
-          };
-
-          return { ...prev, subTests: updatedSubTests };
+          return { ...prev, isSubmitted: true };
         });
-      }, 1000);
+      }, 500);
     }
 
     return () => {
@@ -144,7 +137,7 @@ export function useQuiz() {
             name: config.name,
             questionIndices: indices,
             timeLimit: config.time,
-            remainingTime: config.time,
+            expiresAt: 0, // set when sub-test becomes active
           });
           currentIdxOffset += shuffled.length;
         }
@@ -172,6 +165,11 @@ export function useQuiz() {
       }
     }
 
+    // Activate the first sub-test's timer immediately
+    const finalSubTests = (mode === 'tryout' && subTests && subTests.length > 0)
+      ? subTests.map((st, i) => i === 0 ? { ...st, expiresAt: Date.now() + st.timeLimit * 1000 } : st)
+      : subTests;
+
     setSession({
       mode,
       selectedCategory: category,
@@ -182,7 +180,7 @@ export function useQuiz() {
       startTime: Date.now(),
       timePerQuestion: {},
       isSubmitted: false,
-      subTests: mode === 'tryout' ? subTests : undefined,
+      subTests: mode === 'tryout' ? finalSubTests : undefined,
       currentSubTestIdx: mode === 'tryout' ? 0 : undefined,
     });
   }, [progress]);
@@ -395,14 +393,18 @@ export function useQuiz() {
   const nextSubTest = () => {
     setSession(prev => {
       if (!prev || prev.isSubmitted || prev.currentSubTestIdx === undefined || !prev.subTests) return prev;
-      
+
       if (prev.currentSubTestIdx < prev.subTests.length - 1) {
         const nextIdx = prev.currentSubTestIdx + 1;
         const nextSubTest = prev.subTests[nextIdx];
-        
+
         if (nextSubTest && nextSubTest.questionIndices && nextSubTest.questionIndices.length > 0) {
+          const updatedSubTests = prev.subTests.map((st, i) =>
+            i === nextIdx ? { ...st, expiresAt: Date.now() + st.timeLimit * 1000 } : st
+          );
           return {
             ...prev,
+            subTests: updatedSubTests,
             currentSubTestIdx: nextIdx,
             currentIdx: nextSubTest.questionIndices[0],
           };

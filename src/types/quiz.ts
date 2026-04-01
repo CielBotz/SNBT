@@ -51,6 +51,7 @@ export interface UserProgress {
   categoryStats: { [key in Category]: { correct: number; total: number } };
   currentDifficulty: Difficulty;
   reports: AssessmentReport[];
+  materialMastery: { [concept: string]: number }; // 0-100 per concept
 }
 
 export interface AssessmentReport {
@@ -99,7 +100,7 @@ export interface QuizSession {
     name: string;
     questionIndices: number[];
     timeLimit: number; // seconds
-    remainingTime: number;
+    expiresAt: number; // absolute timestamp (ms) when this sub-test timer expires; 0 = not yet started
   }[];
   currentSubTestIdx?: number;
 }

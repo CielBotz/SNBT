@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Trophy, 
@@ -21,11 +21,12 @@ import {
   Zap,
   ArrowRight,
   Search,
-  School
+  School,
+  Calendar
 } from 'lucide-react';
 import { useQuiz } from './hooks/useQuiz';
 import { formatTime, cn } from './lib/utils';
-import { Difficulty, Category, Question, AssessmentReport, StudyMaterial } from './types/quiz';
+import { Difficulty, Category, Question, AssessmentReport, StudyMaterial, QuizSession } from './types/quiz';
 import { STUDY_MATERIALS } from './data/materials';
 import ReactMarkdown from 'react-markdown';
 import { 
@@ -57,6 +58,33 @@ const ProgressBar = ({ current, total, color = "bg-indigo-600" }: { current: num
     />
   </div>
 );
+
+// Isolated countdown timer — only this component re-renders every second, not the whole quiz
+const SubTestCountdown = React.memo(({ expiresAt, onExpire }: { expiresAt: number; onExpire: () => void }) => {
+  const getRemaining = useCallback(() => Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000)), [expiresAt]);
+  const [secs, setSecs] = useState(getRemaining);
+  const onExpireRef = useRef(onExpire);
+  onExpireRef.current = onExpire;
+
+  useEffect(() => {
+    setSecs(getRemaining());
+    const id = setInterval(() => {
+      const rem = getRemaining();
+      setSecs(rem);
+      if (rem <= 0) {
+        clearInterval(id);
+        onExpireRef.current();
+      }
+    }, 500);
+    return () => clearInterval(id);
+  }, [expiresAt, getRemaining]);
+
+  return (
+    <span className={cn("text-2xl font-black font-mono tracking-tighter", secs < 60 ? "text-rose-400 animate-pulse" : "text-white")}>
+      {formatTime(secs)}
+    </span>
+  );
+});
 
 const DifficultyBadge = ({ difficulty }: { difficulty: Difficulty }) => {
   const colors = {
@@ -121,7 +149,7 @@ const QuestionArea = React.memo(({ question, session, answerQuestion }: {
         return (
           <button key={idx} className={optionClass} onClick={() => !isSubmitted && answerQuestion(idx)} disabled={isSubmitted}>
             <span className="font-black text-xs mt-0.5 min-w-[20px]">{String.fromCharCode(65 + idx)}.</span>
-            <ReactMarkdown className="prose prose-sm max-w-none">{option}</ReactMarkdown>
+            <div className="prose prose-sm max-w-none"><ReactMarkdown>{option}</ReactMarkdown></div>
             {isSubmitted && isCorrect && <CheckCircle2 size={18} className="ml-auto text-green-500 shrink-0 mt-0.5" />}
             {isSubmitted && isSelected && !isCorrect && <XCircle size={18} className="ml-auto text-red-500 shrink-0 mt-0.5" />}
           </button>
@@ -146,7 +174,7 @@ const QuestionArea = React.memo(({ question, session, answerQuestion }: {
           }
           return (
             <div key={idx} className={rowClass}>
-              <ReactMarkdown className="prose prose-sm max-w-none text-slate-700 mb-3">{opt.statement}</ReactMarkdown>
+              <div className="prose prose-sm max-w-none text-slate-700 mb-3"><ReactMarkdown>{opt.statement}</ReactMarkdown></div>
               <div className="flex gap-3">
                 {[true, false].map((val) => {
                   const label = val ? 'Benar' : 'Salah';
@@ -261,7 +289,6 @@ export default function App() {
   const [view, setView] = useState<'dashboard' | 'quiz' | 'analytics' | 'report' | 'study'>('dashboard');
   const [selectedReport, setSelectedReport] = useState<AssessmentReport | null>(null);
   const [selectedMaterial, setSelectedMaterial] = useState<StudyMaterial | null>(null);
-  const [showSummary, setShowSummary] = useState(false);
 
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [showSubTestConfirm, setShowSubTestConfirm] = useState(false);
@@ -479,20 +506,20 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-10">
-            <div className="flex items-center gap-5 bg-[#0f172a] px-6 py-3 rounded-2xl border border-slate-800 shadow-inner">
-              <div className="flex flex-col items-center">
-                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">SISA WAKTU</span>
-                <div className={cn(
-                  "flex items-center gap-3 font-mono",
-                  currentSubTest && currentSubTest.remainingTime < 60 ? "text-rose-500 animate-pulse" : "text-white"
-                )}>
-                  <Clock size={20} className={currentSubTest && currentSubTest.remainingTime < 60 ? "text-rose-500" : "text-indigo-400"} />
-                  <span className="text-2xl font-black leading-none tracking-tighter">
-                    {currentSubTest ? formatTime(currentSubTest.remainingTime) : '00:00'}
-                  </span>
+            {currentSubTest && currentSubTest.expiresAt > 0 && (
+              <div className="flex items-center gap-5 bg-[#0f172a] px-6 py-3 rounded-2xl border border-slate-800 shadow-inner">
+                <div className="flex flex-col items-center">
+                  <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">SISA WAKTU</span>
+                  <div className="flex items-center gap-3">
+                    <Clock size={20} className="text-indigo-400" />
+                    <SubTestCountdown
+                      expiresAt={currentSubTest.expiresAt}
+                      onExpire={() => {}}
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
             
             {!session.isSubmitted && (
               <button 
@@ -1034,229 +1061,267 @@ export default function App() {
   };
 
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
-  const [conceptFilter, setConceptFilter] = useState<string>('All');
 
-  const categories = ['All', ...new Set(STUDY_MATERIALS.map(m => m.category))];
-  const concepts = ['All', ...new Set(STUDY_MATERIALS.filter(m => categoryFilter === 'All' || m.category === categoryFilter).map(m => m.concept))];
+  const CATEGORY_META: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode; desc: string }> = {
+    'All': { label: 'Semua Materi', color: 'text-slate-700', bg: 'bg-slate-800', icon: <LayoutGrid size={18} />, desc: 'Semua topik SNBT 2026' },
+    'TPS': { label: 'TPS', color: 'text-blue-700', bg: 'bg-blue-600', icon: <Target size={18} />, desc: 'Tes Potensi Skolastik' },
+    'Literasi Indonesia': { label: 'Literasi ID', color: 'text-rose-700', bg: 'bg-rose-600', icon: <BookOpen size={18} />, desc: 'Bahasa Indonesia' },
+    'Literasi Inggris': { label: 'Literasi EN', color: 'text-amber-700', bg: 'bg-amber-500', icon: <GraduationCap size={18} />, desc: 'Bahasa Inggris' },
+    'Penalaran Matematika': { label: 'Matematika', color: 'text-emerald-700', bg: 'bg-emerald-600', icon: <BarChart3 size={18} />, desc: 'Penalaran Matematika' },
+  };
 
-  const filteredMaterials = STUDY_MATERIALS.filter(m => {
-    const categoryMatch = categoryFilter === 'All' || m.category === categoryFilter;
-    const conceptMatch = conceptFilter === 'All' || m.concept === conceptFilter;
-    return categoryMatch && conceptMatch;
-  });
+  const filteredMaterials = STUDY_MATERIALS.filter(m =>
+    categoryFilter === 'All' || m.category === categoryFilter
+  );
+
+  const getReadingTime = (content: string) => Math.max(2, Math.ceil(content.split(' ').length / 200));
 
   const StudyView = () => (
-    <div className="max-w-6xl mx-auto p-6 space-y-10 pb-32">
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-8">
-        <div className="flex items-center gap-5">
-          <button 
-            onClick={() => {
-              if (selectedMaterial) setSelectedMaterial(null);
-              else setView('dashboard');
-            }}
-            className="p-4 bg-white border border-slate-200 rounded-3xl text-slate-600 hover:bg-slate-50 transition-all shadow-sm hover:shadow-md"
-          >
-            <ChevronLeft size={24} />
-          </button>
-          <div>
-            <h1 className="text-4xl font-black text-slate-900 tracking-tight">Pustaka Belajar</h1>
-            <p className="text-slate-500 font-medium">Eksplorasi materi SNBT secara mendalam</p>
+    <div className="min-h-screen bg-[#f0f4ff] pb-32">
+      {/* Hero Banner */}
+      <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900">
+        <img
+          src="https://images.unsplash.com/photo-1481627834876-b7833e8f5882?auto=format&fit=crop&w=1400&q=60"
+          alt="Library"
+          className="absolute inset-0 w-full h-full object-cover opacity-20"
+        />
+        <div className="relative max-w-6xl mx-auto px-6 py-14 flex flex-col md:flex-row items-center gap-10">
+          <div className="flex-1 space-y-5">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setView('dashboard')}
+                className="p-2 bg-white/10 hover:bg-white/20 rounded-2xl text-white transition-colors"
+              >
+                <ChevronLeft size={20} />
+              </button>
+              <span className="text-indigo-300 font-black text-xs uppercase tracking-widest">Pustaka Belajar</span>
+            </div>
+            <h1 className="text-5xl md:text-6xl font-black text-white leading-[1.1] tracking-tight">
+              Materi Lengkap<br />
+              <span className="text-indigo-400">SNBT 2026</span>
+            </h1>
+            <p className="text-slate-300 text-lg font-medium leading-relaxed max-w-lg">
+              {STUDY_MATERIALS.length} topik komprehensif mencakup seluruh sub-tes, disusun berdasarkan kisi-kisi resmi SNPMB.
+            </p>
+            <div className="flex flex-wrap gap-4">
+              {Object.entries(CATEGORY_META).filter(([k]) => k !== 'All').map(([key, meta]) => (
+                <div key={key} className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-2xl border border-white/10">
+                  <span className="text-white/60">{meta.icon}</span>
+                  <span className="text-white text-xs font-black">{meta.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="hidden md:block">
+            <div className="w-64 h-64 bg-white/5 rounded-[40px] border border-white/10 flex items-center justify-center relative overflow-hidden">
+              <img
+                src="https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=400&q=70"
+                alt="Study"
+                className="w-full h-full object-cover rounded-[40px] opacity-60"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-indigo-900/70 to-transparent rounded-[40px]" />
+              <div className="absolute bottom-6 left-6 right-6">
+                <div className="text-white font-black text-2xl">{STUDY_MATERIALS.length}</div>
+                <div className="text-indigo-300 text-xs font-bold uppercase tracking-widest">Topik Materi</div>
+              </div>
+            </div>
           </div>
         </div>
+      </div>
 
-        {!selectedMaterial && (
-          <div className="flex flex-wrap gap-4 bg-white p-2 rounded-[28px] border border-slate-200 shadow-sm">
-            <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 rounded-2xl border border-slate-100">
-              <LayoutGrid size={16} className="text-slate-400" />
-              <select 
-                value={categoryFilter}
-                onChange={(e) => {
-                  setCategoryFilter(e.target.value);
-                  setConceptFilter('All');
-                }}
-                className="bg-transparent text-sm font-black text-slate-700 focus:outline-none cursor-pointer"
-              >
-                {categories.map(cat => <option key={cat} value={cat}>{cat === 'All' ? 'Semua Kategori' : cat}</option>)}
-              </select>
-            </div>
-            <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 rounded-2xl border border-slate-100">
-              <Target size={16} className="text-slate-400" />
-              <select 
-                value={conceptFilter}
-                onChange={(e) => setConceptFilter(e.target.value)}
-                className="bg-transparent text-sm font-black text-slate-700 focus:outline-none cursor-pointer"
-              >
-                {concepts.map(con => <option key={con} value={con}>{con === 'All' ? 'Semua Konsep' : con}</option>)}
-              </select>
-            </div>
-          </div>
-        )}
-      </header>
-
-      {!selectedMaterial ? (
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {filteredMaterials.map(material => (
-            <motion.button
-              key={material.id}
-              whileHover={{ y: -10 }}
-              onClick={() => setSelectedMaterial(material)}
-              className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-sm hover:shadow-2xl hover:border-indigo-300 text-left space-y-6 group transition-all duration-500 relative overflow-hidden"
+      <div className="max-w-6xl mx-auto px-6 pt-10 space-y-8">
+        {/* Category Filter Tabs */}
+        <div className="flex flex-wrap gap-3">
+          {Object.entries(CATEGORY_META).map(([key, meta]) => (
+            <button
+              key={key}
+              onClick={() => setCategoryFilter(key)}
+              className={cn(
+                "flex items-center gap-2 px-5 py-3 rounded-2xl font-black text-sm transition-all border",
+                categoryFilter === key
+                  ? `${meta.bg} text-white border-transparent shadow-lg`
+                  : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:shadow-md"
+              )}
             >
-              <div className="absolute top-0 right-0 w-32 h-32 bg-slate-50 rounded-bl-[80px] -mr-12 -mt-12 group-hover:bg-indigo-50 transition-colors" />
-              
-              <div className={cn(
-                "w-16 h-16 rounded-3xl flex items-center justify-center text-white shadow-xl relative z-10 group-hover:scale-110 transition-transform",
-                material.category === 'TPS' ? 'bg-rose-500 shadow-rose-200' : 
-                material.category === 'Literasi Indonesia' ? 'bg-indigo-500 shadow-indigo-200' : 
-                material.category === 'Literasi Inggris' ? 'bg-amber-500 shadow-amber-200' : 
-                'bg-emerald-500 shadow-emerald-200'
+              {meta.icon}
+              {meta.label}
+              <span className={cn(
+                "text-[10px] font-black px-2 py-0.5 rounded-full",
+                categoryFilter === key ? "bg-white/20" : "bg-slate-100 text-slate-400"
               )}>
-                <BookOpen size={32} />
-              </div>
-              <div className="space-y-3 relative z-10">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{material.category}</span>
-                  <div className="w-1 h-1 bg-slate-300 rounded-full" />
-                  <span className="text-[10px] font-black text-indigo-500 uppercase tracking-[0.2em]">{material.concept}</span>
-                </div>
-                <h3 className="text-2xl font-black text-slate-900 leading-tight group-hover:text-indigo-600 transition-colors">{material.title}</h3>
-                <p className="text-slate-500 text-sm font-medium line-clamp-2 leading-relaxed">
-                  {material.summary}
-                </p>
-              </div>
-              <div className="pt-4 flex items-center text-indigo-600 font-black text-xs uppercase tracking-widest gap-2 relative z-10 group-hover:gap-4 transition-all">
-                Pelajari Materi <ArrowRight size={16} />
-              </div>
-            </motion.button>
+                {key === 'All' ? STUDY_MATERIALS.length : STUDY_MATERIALS.filter(m => m.category === key).length}
+              </span>
+            </button>
           ))}
-          {filteredMaterials.length === 0 && (
-            <div className="col-span-full py-32 text-center space-y-6 bg-white rounded-[48px] border border-dashed border-slate-300">
-              <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mx-auto text-slate-300">
-                <Search size={48} />
-              </div>
-              <div className="space-y-2">
-                <p className="text-xl font-black text-slate-900">Materi Tidak Ditemukan</p>
-                <p className="text-slate-500 font-medium">Coba sesuaikan filter kategori atau konsep pencarianmu.</p>
-              </div>
-              <button 
-                onClick={() => { setCategoryFilter('All'); setConceptFilter('All'); }}
-                className="bg-slate-900 text-white px-8 py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-800 transition-all"
+        </div>
+
+        {/* Material Grid */}
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredMaterials.map((material, idx) => {
+            const meta = CATEGORY_META[material.category] || CATEGORY_META['TPS'];
+            const readMins = getReadingTime(material.fullContent);
+            const isPrediksi = material.id.startsWith('pred');
+            return (
+              <motion.button
+                key={material.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.04 }}
+                whileHover={{ y: -6, transition: { duration: 0.2 } }}
+                onClick={() => setSelectedMaterial(material)}
+                className="bg-white rounded-[32px] border border-slate-200 shadow-sm hover:shadow-xl text-left overflow-hidden group transition-all duration-300"
               >
-                Reset Semua Filter
+                {/* Card header strip */}
+                <div className={cn("h-2 w-full", meta.bg, isPrediksi && "bg-gradient-to-r from-violet-600 to-indigo-500")} />
+                <div className="p-7 space-y-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className={cn("w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-lg flex-shrink-0", meta.bg)}>
+                      {isPrediksi ? <Zap size={22} /> : meta.icon}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-slate-400 text-xs font-bold mt-1">
+                      <Clock size={12} />
+                      <span>{readMins} menit</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className={cn("text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full", 
+                        isPrediksi ? "bg-violet-50 text-violet-600" : `${meta.bg} bg-opacity-10 ${meta.color}`
+                      )}>
+                        {isPrediksi ? '🔮 Prediksi 2026' : material.category}
+                      </span>
+                    </div>
+                    <h3 className="text-lg font-black text-slate-900 leading-snug group-hover:text-indigo-700 transition-colors">
+                      {material.title}
+                    </h3>
+                    <p className="text-slate-500 text-sm leading-relaxed line-clamp-2">{material.summary}</p>
+                  </div>
+                  <div className="flex items-center gap-2 text-indigo-600 font-black text-xs uppercase tracking-widest group-hover:gap-4 transition-all">
+                    Pelajari Materi <ArrowRight size={14} />
+                  </div>
+                </div>
+              </motion.button>
+            );
+          })}
+          {filteredMaterials.length === 0 && (
+            <div className="col-span-full py-24 text-center space-y-4 bg-white rounded-[32px] border border-dashed border-slate-300">
+              <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto text-slate-300">
+                <Search size={32} />
+              </div>
+              <p className="text-slate-400 font-bold">Tidak ada materi untuk kategori ini.</p>
+              <button onClick={() => setCategoryFilter('All')} className="bg-slate-900 text-white px-6 py-2 rounded-xl font-bold text-sm hover:bg-slate-800 transition-colors">
+                Tampilkan Semua
               </button>
             </div>
           )}
         </div>
-      ) : (
-        <motion.div 
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="max-w-4xl mx-auto space-y-10"
-        >
-          <div className="bg-white rounded-[48px] border border-slate-200 shadow-2xl overflow-hidden">
-            <div className="bg-slate-900 p-10 md:p-16 text-white space-y-8 relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl -mr-32 -mt-32" />
-              <div className="relative z-10 space-y-6">
-                <div className="flex flex-wrap gap-3">
-                  <span className="px-5 py-2 bg-white/10 backdrop-blur-md rounded-full text-[10px] font-black uppercase tracking-widest border border-white/10">
-                    {selectedMaterial.category}
-                  </span>
-                  <span className="px-5 py-2 bg-indigo-500/30 backdrop-blur-md rounded-full text-[10px] font-black uppercase tracking-widest border border-indigo-500/20 text-indigo-200">
-                    {selectedMaterial.concept}
-                  </span>
-                </div>
-                <h2 className="text-5xl md:text-6xl font-black leading-[1.1] tracking-tight">{selectedMaterial.title}</h2>
-                
-                <div className="flex p-1.5 bg-white/5 backdrop-blur-md rounded-[24px] w-fit border border-white/10">
-                  <button 
-                    onClick={() => setShowSummary(false)}
-                    className={cn(
-                      "px-8 py-3 rounded-[18px] text-sm font-black transition-all uppercase tracking-widest",
-                      !showSummary ? "bg-white text-slate-900 shadow-xl" : "text-white/60 hover:text-white"
-                    )}
-                  >
-                    Materi Lengkap
-                  </button>
-                  <button 
-                    onClick={() => setShowSummary(true)}
-                    className={cn(
-                      "px-8 py-3 rounded-[18px] text-sm font-black transition-all uppercase tracking-widest",
-                      showSummary ? "bg-white text-slate-900 shadow-xl" : "text-white/60 hover:text-white"
-                    )}
-                  >
-                    Ringkasan
-                  </button>
-                </div>
-              </div>
-            </div>
 
-            <div className="p-10 md:p-16">
-              <div className="prose prose-slate max-w-none prose-headings:font-black prose-headings:tracking-tight prose-p:text-lg prose-p:leading-relaxed prose-li:text-lg">
-                {showSummary ? (
-                  <div className="bg-indigo-50 p-10 rounded-[40px] border border-indigo-100 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-4 opacity-10">
-                      <Zap size={120} />
+        {/* Selected Material Detail */}
+        {selectedMaterial && (
+          <div className="fixed inset-0 z-50 overflow-y-auto bg-[#f0f4ff]">
+            <div className="max-w-4xl mx-auto px-4 py-8 space-y-8">
+              {/* Detail Header */}
+              <div className="bg-white rounded-[40px] overflow-hidden shadow-2xl border border-slate-200">
+                {/* Hero with background image */}
+                <div className="relative min-h-[280px] flex items-end overflow-hidden">
+                  <img
+                    src={
+                      selectedMaterial.category === 'TPS'
+                        ? 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?auto=format&fit=crop&w=1000&q=60'
+                        : selectedMaterial.category === 'Literasi Indonesia'
+                        ? 'https://images.unsplash.com/photo-1455390582262-044cdead277a?auto=format&fit=crop&w=1000&q=60'
+                        : selectedMaterial.category === 'Literasi Inggris'
+                        ? 'https://images.unsplash.com/photo-1457369804613-52c61a468e7d?auto=format&fit=crop&w=1000&q=60'
+                        : 'https://images.unsplash.com/photo-1509228468518-180dd4864904?auto=format&fit=crop&w=1000&q=60'
+                    }
+                    alt={selectedMaterial.category}
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/70 to-transparent" />
+                  <div className="relative z-10 p-10 space-y-4 w-full">
+                    <button
+                      onClick={() => setSelectedMaterial(null)}
+                      className="flex items-center gap-2 text-white/70 hover:text-white font-black text-xs uppercase tracking-widest transition-colors mb-4"
+                    >
+                      <ChevronLeft size={16} /> Kembali ke Daftar
+                    </button>
+                    <div className="flex flex-wrap gap-3">
+                      <span className="px-4 py-1.5 bg-white/15 backdrop-blur-sm rounded-full text-white text-[10px] font-black uppercase tracking-widest border border-white/20">
+                        {selectedMaterial.category}
+                      </span>
+                      <span className="px-4 py-1.5 bg-indigo-500/30 backdrop-blur-sm rounded-full text-indigo-200 text-[10px] font-black uppercase tracking-widest border border-indigo-400/30">
+                        {selectedMaterial.concept}
+                      </span>
+                      <span className="px-4 py-1.5 bg-white/10 backdrop-blur-sm rounded-full text-white/70 text-[10px] font-bold border border-white/10">
+                        ⏱ {getReadingTime(selectedMaterial.fullContent)} menit baca
+                      </span>
                     </div>
-                    <div className="flex items-center gap-4 text-indigo-900 font-black mb-6 relative z-10">
-                      <div className="bg-white p-3 rounded-2xl shadow-sm">
-                        <Zap size={24} className="text-amber-500" />
+                    <h2 className="text-4xl md:text-5xl font-black text-white leading-[1.1] tracking-tight">
+                      {selectedMaterial.title}
+                    </h2>
+                  </div>
+                </div>
+
+                {/* Content */}
+                <div className="p-10 space-y-10">
+                  {/* Key Takeaway */}
+                  <div className="bg-indigo-50 rounded-[32px] p-8 border border-indigo-100 relative overflow-hidden">
+                    <div className="absolute -top-6 -right-6 opacity-5">
+                      <Zap size={140} />
+                    </div>
+                    <div className="flex items-center gap-3 mb-4 relative z-10">
+                      <div className="bg-white p-2.5 rounded-xl shadow-sm">
+                        <Zap size={20} className="text-amber-500" />
                       </div>
-                      <h4 className="text-2xl">Key Takeaways</h4>
+                      <h4 className="font-black text-indigo-900 text-lg">Ringkasan Kunci</h4>
                     </div>
-                    <p className="text-indigo-900 text-xl leading-relaxed font-medium italic relative z-10">
+                    <p className="text-indigo-900 text-lg leading-relaxed font-medium italic relative z-10">
                       "{selectedMaterial.summary}"
                     </p>
                   </div>
-                ) : (
-                  <div className="text-slate-700 space-y-8">
-                    <ReactMarkdown>{selectedMaterial.fullContent}</ReactMarkdown>
-                  </div>
-                )}
-              </div>
 
-              <div className="mt-16 pt-16 border-t border-slate-100 space-y-8">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xl font-black text-slate-900 flex items-center gap-3">
-                    <div className="bg-slate-100 p-2 rounded-xl">
-                      <Search size={20} className="text-indigo-600" />
+                  {/* Full Content */}
+                  <div className="prose prose-slate max-w-none prose-headings:font-black prose-headings:tracking-tight prose-h1:text-3xl prose-h2:text-2xl prose-h2:border-b prose-h2:border-slate-100 prose-h2:pb-2 prose-h3:text-xl prose-p:text-lg prose-p:leading-relaxed prose-li:text-base prose-li:leading-relaxed prose-table:text-sm prose-th:bg-slate-50 prose-th:p-3 prose-td:p-3 prose-td:border prose-td:border-slate-100">
+                    <div className="text-slate-700">
+                      <ReactMarkdown>{selectedMaterial.fullContent}</ReactMarkdown>
                     </div>
-                    Referensi Terpercaya
-                  </h4>
-                </div>
-                <div className="grid sm:grid-cols-2 gap-6">
-                  {selectedMaterial.sources.map((source, idx) => (
-                    <a 
-                      key={idx}
-                      href={source.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-between p-6 bg-slate-50 rounded-[32px] border border-slate-100 hover:border-indigo-300 hover:bg-indigo-50 transition-all group shadow-sm hover:shadow-md"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-slate-400 group-hover:text-indigo-600 transition-colors">
-                          <School size={20} />
-                        </div>
-                        <span className="font-black text-slate-700 group-hover:text-indigo-900">{source.name}</span>
+                  </div>
+
+                  {/* Sources */}
+                  <div className="pt-8 border-t border-slate-100 space-y-6">
+                    <h4 className="text-lg font-black text-slate-900 flex items-center gap-3">
+                      <div className="bg-slate-100 p-2 rounded-xl">
+                        <Search size={18} className="text-indigo-600" />
                       </div>
-                      <ArrowRight size={20} className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-2 transition-all" />
-                    </a>
-                  ))}
+                      Referensi Terpercaya
+                    </h4>
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      {selectedMaterial.sources.map((source, idx) => (
+                        <a
+                          key={idx}
+                          href={source.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center justify-between p-5 bg-slate-50 rounded-[24px] border border-slate-100 hover:border-indigo-300 hover:bg-indigo-50 transition-all group"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 bg-white rounded-xl flex items-center justify-center text-slate-400 group-hover:text-indigo-600 transition-colors">
+                              <School size={18} />
+                            </div>
+                            <span className="font-bold text-slate-700 group-hover:text-indigo-900 text-sm">{source.name}</span>
+                          </div>
+                          <ArrowRight size={16} className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" />
+                        </a>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
+        )}
 
-          <div className="flex justify-center">
-            <button 
-              onClick={() => setSelectedMaterial(null)}
-              className="flex items-center gap-3 text-slate-400 font-black text-xs uppercase tracking-[0.3em] hover:text-indigo-600 transition-colors group"
-            >
-              <ChevronLeft size={20} className="group-hover:-translate-x-2 transition-transform" />
-              Kembali ke Daftar Materi
-            </button>
-          </div>
-        </motion.div>
-      )}
+      </div>
     </div>
   );
 
