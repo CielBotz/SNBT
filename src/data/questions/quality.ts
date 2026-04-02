@@ -1,4 +1,6 @@
-import { Difficulty, Question, QuestionBlueprint, SourceValidity } from '../../types/quiz';
+import type { Difficulty, Question, QuestionBlueprint, SourceValidity } from '../../types/quiz';
+
+export type QuestionSeed = Omit<Question, 'blueprint' | 'qualityMetadata' | 'editorial'>;
 
 const COGNITIVE_BY_DIFFICULTY: Record<Difficulty, QuestionBlueprint['cognitiveLevel']> = {
   easy: 'C2',
@@ -13,7 +15,7 @@ const SOURCE_VALIDITY_BY_CATEGORY: Record<Question['category'], SourceValidity> 
   'Penalaran Matematika': 'verified',
 };
 
-export function withBlueprintMetadata(questions: Omit<Question, 'blueprint'>[]): Question[] {
+export function withBlueprintMetadata(questions: QuestionSeed[]): Array<QuestionSeed & { blueprint: QuestionBlueprint }> {
   return questions.map((question) => {
     const cognitiveLevel = COGNITIVE_BY_DIFFICULTY[question.difficulty] ?? 'C3';
     return {
