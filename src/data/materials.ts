@@ -1542,3 +1542,5 @@ export const STUDY_MATERIALS: StudyMaterial[] = BASE_STUDY_MATERIALS.map((materi
     studyBlocks: buildStudyBlocks(material)
   };
 });
+export const findMaterialByConcept = (concept: string): StudyMaterial | undefined =>
+  STUDY_MATERIALS.find((m) => m.concept === concept);
