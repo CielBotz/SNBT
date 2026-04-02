@@ -26,7 +26,6 @@ export interface QuizSession {
   startTime: number;
   timePerQuestion: { [questionId: string]: number };
   questionStartedAt?: number;
-  questionStartAt?: number;
   isSubmitted: boolean;
   subTests?: {
     name: string;

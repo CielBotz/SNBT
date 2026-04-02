@@ -17,6 +17,7 @@ import {
   auditTryoutPackages,
   assessQuestionValidity,
 } from './questionGovernance';
+import type { QuestionSeed } from './questions/quality';
 
 const DEFAULT_EDITORIAL_CHECKLIST = {
   stemClarity: true,
@@ -41,8 +42,6 @@ const QUESTION_EDITORIAL_METADATA: Record<string, EditorialMetadata> = {
     ],
   },
 };
-
-type QuestionSeed = Omit<Question, 'qualityMetadata' | 'editorial'>;
 
 const SUBTOPIC_BY_CONCEPT: Record<Question['concept'], string> = {
   'Penalaran Induktif': 'Pola, analogi, dan generalisasi',
