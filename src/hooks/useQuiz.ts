@@ -1,12 +1,17 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Question, UserProgress, QuizSession, Difficulty, Category, AssessmentReport } from '../types/quiz';
+import { Question, UserProgress, QuizSession, Difficulty, Category, AssessmentReport, Concept, ConceptEvaluation, ConceptLongitudinalMetrics, ConceptStatus } from '../types/quiz';
 import { QUESTIONS } from '../data/questions';
 import { calculateIRTScore, getNationalStats } from '../lib/irt';
 import { PTN_DATA } from '../data/ptn';
 
-const STORAGE_KEY = 'ppu_master_progress_v3';
+const STORAGE_KEY = 'ppu_master_progress_v4';
+const STORAGE_KEY_LEGACY = 'ppu_master_progress_v3';
+const STORAGE_VERSION = 4;
+const ROLLING_ALPHA = 0.35;
+const MIN_CONCEPT_SAMPLE_FOR_STATUS = 5;
 
 const INITIAL_PROGRESS: UserProgress = {
+  storageVersion: STORAGE_VERSION,
   completedIds: [],
   wrongIds: [],
   streak: 0,
@@ -20,6 +25,81 @@ const INITIAL_PROGRESS: UserProgress = {
   currentDifficulty: 'easy',
   reports: [],
   materialMastery: {},
+  conceptMetrics: {},
+};
+
+const clamp = (value: number, min = 0, max = 1) => Math.max(min, Math.min(max, value));
+
+const computeConfidenceBand = (accuracy: number, sampleSize: number) => {
+  if (sampleSize <= 0) return { low: 0, high: 1 };
+  const margin = 1.96 * Math.sqrt((accuracy * (1 - accuracy)) / sampleSize);
+  return {
+    low: clamp(accuracy - margin),
+    high: clamp(accuracy + margin),
+  };
+};
+
+const evaluateConceptStatus = (metric: ConceptLongitudinalMetrics): ConceptStatus => {
+  if (metric.totalAttempts < MIN_CONCEPT_SAMPLE_FOR_STATUS) return 'Insufficient Data';
+  if (metric.confidenceBand.low >= 0.72 && metric.recentTrend > -0.12) return 'Strong';
+  if (metric.confidenceBand.high < 0.5 || (metric.rollingAccuracy < 0.52 && metric.recentTrend < -0.08)) return 'Critical';
+  return 'Watchlist';
+};
+
+const toConceptEvaluation = (concept: Concept, metric: ConceptLongitudinalMetrics): ConceptEvaluation => ({
+  concept,
+  status: evaluateConceptStatus(metric),
+  rollingAccuracy: metric.rollingAccuracy,
+  sampleSize: metric.totalAttempts,
+  recentTrend: metric.recentTrend,
+  confidenceBand: metric.confidenceBand,
+});
+
+const migrateProgress = (raw: any): UserProgress => {
+  const merged: UserProgress = {
+    ...INITIAL_PROGRESS,
+    ...raw,
+    materialMastery: raw?.materialMastery ?? {},
+    conceptMetrics: raw?.conceptMetrics ?? {},
+    storageVersion: STORAGE_VERSION,
+  };
+
+  merged.reports = (merged.reports ?? []).map((report: any) => ({
+    ...report,
+    conceptEvaluations: report?.conceptEvaluations ?? [],
+  }));
+
+  Object.entries(merged.conceptMetrics).forEach(([concept, metric]) => {
+    const safeMetric = metric as Partial<ConceptLongitudinalMetrics>;
+    merged.conceptMetrics[concept as Concept] = {
+      totalAttempts: safeMetric.totalAttempts ?? 0,
+      totalCorrect: safeMetric.totalCorrect ?? 0,
+      rollingAccuracy: safeMetric.rollingAccuracy ?? 0.5,
+      recentTrend: safeMetric.recentTrend ?? 0,
+      confidenceBand: safeMetric.confidenceBand ?? { low: 0, high: 1 },
+      history: safeMetric.history ?? [],
+      lastUpdated: safeMetric.lastUpdated ?? new Date().toISOString(),
+    };
+  });
+
+  if (!raw?.conceptMetrics) {
+    merged.conceptMetrics = {};
+    Object.entries(merged.materialMastery).forEach(([conceptKey, mastery]) => {
+      const derivedAccuracy = clamp((Number(mastery) || 0) / 100);
+      const sampleSize = 0;
+      merged.conceptMetrics[conceptKey as Concept] = {
+        totalAttempts: sampleSize,
+        totalCorrect: 0,
+        rollingAccuracy: derivedAccuracy,
+        recentTrend: 0,
+        confidenceBand: { low: 0, high: 1 },
+        history: [],
+        lastUpdated: new Date().toISOString(),
+      };
+    });
+  }
+
+  return merged;
 };
 
 const SUB_TEST_CONFIGS = [
@@ -36,10 +116,10 @@ const SUB_TEST_CONFIGS = [
 
 export function useQuiz() {
   const [progress, setProgress] = useState<UserProgress>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(STORAGE_KEY_LEGACY);
     if (saved) {
       const parsed = JSON.parse(saved);
-      return { ...INITIAL_PROGRESS, ...parsed, materialMastery: parsed.materialMastery ?? {} };
+      return migrateProgress(parsed);
     }
     return INITIAL_PROGRESS;
   });
@@ -312,6 +392,51 @@ export function useQuiz() {
       materialMastery[key] = Math.round((materialMastery[key].correct / (materialMastery[key].total || 1)) * 100);
     });
 
+    const previousMetrics = progress.conceptMetrics ?? {};
+    const conceptMetrics = { ...previousMetrics };
+    const conceptBucket: Record<string, { correct: number; total: number }> = {};
+
+    results.forEach(result => {
+      if (!conceptBucket[result.concept]) conceptBucket[result.concept] = { correct: 0, total: 0 };
+      conceptBucket[result.concept].total += 1;
+      if (result.correct) conceptBucket[result.concept].correct += 1;
+    });
+
+    Object.entries(conceptBucket).forEach(([conceptKey, bucket]) => {
+      const concept = conceptKey as Concept;
+      const previous = previousMetrics[concept];
+      const previousRolling = previous?.rollingAccuracy ?? 0.5;
+      const sessionAccuracy = bucket.correct / (bucket.total || 1);
+      const rollingAccuracy = clamp((ROLLING_ALPHA * sessionAccuracy) + ((1 - ROLLING_ALPHA) * previousRolling));
+      const recentTrend = clamp(
+        ((previous?.recentTrend ?? 0) * 0.5) + ((rollingAccuracy - previousRolling) * 0.5),
+        -1,
+        1
+      );
+      const totalAttempts = (previous?.totalAttempts ?? 0) + bucket.total;
+      const totalCorrect = (previous?.totalCorrect ?? 0) + bucket.correct;
+      const confidenceBand = computeConfidenceBand(totalCorrect / (totalAttempts || 1), totalAttempts);
+      const history = [...(previous?.history ?? []), {
+        date: new Date().toISOString(),
+        accuracy: sessionAccuracy,
+        sampleSize: bucket.total,
+      }].slice(-20);
+
+      conceptMetrics[concept] = {
+        totalAttempts,
+        totalCorrect,
+        rollingAccuracy,
+        recentTrend,
+        confidenceBand,
+        history,
+        lastUpdated: new Date().toISOString(),
+      };
+    });
+
+    const conceptEvaluations = Object.entries(conceptMetrics)
+      .map(([concept, metric]) => toConceptEvaluation(concept as Concept, metric))
+      .sort((a, b) => a.status.localeCompare(b.status) || a.rollingAccuracy - b.rollingAccuracy);
+
     // Rationalization Logic
     const recommendations = PTN_DATA.flatMap(ptn => 
       ptn.prodi.map(prodi => {
@@ -324,10 +449,14 @@ export function useQuiz() {
         else if (diff >= -50) chance = 15;
         else chance = 5;
 
+        const criticalCount = conceptEvaluations.filter(item => item.status === 'Critical').length;
+        const confidenceReady = conceptEvaluations.filter(item => item.sampleSize >= MIN_CONCEPT_SAMPLE_FOR_STATUS).length >= 2;
+        const guardedChance = confidenceReady ? Math.max(5, chance - (criticalCount * 5)) : chance;
+
         return {
           ptn: ptn.name,
           prodi: prodi.name,
-          chance
+          chance: guardedChance
         };
       })
     ).sort((a, b) => b.chance - a.chance).slice(0, 5);
@@ -341,6 +470,7 @@ export function useQuiz() {
       totalParticipants,
       percentile,
       materialMastery,
+      conceptEvaluations,
       recommendations
     };
 
@@ -383,6 +513,7 @@ export function useQuiz() {
         categoryStats: updatedStats,
         currentDifficulty: newDifficulty,
         materialMastery: { ...(prev.materialMastery ?? {}), ...materialMastery },
+        conceptMetrics,
         reports: [report, ...prev.reports].slice(0, 10),
       };
     });
