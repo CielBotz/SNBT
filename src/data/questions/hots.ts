@@ -1,6 +1,3 @@
-import { QuestionBankItem } from '../../types/quiz';
-
-export const HOTS_QUESTIONS: QuestionBankItem[] = [
 import { Question } from '../../types/quiz';
 import { withBlueprintMetadata } from './quality';
 
