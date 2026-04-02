@@ -27,7 +27,7 @@ import {
 import { useQuiz } from './hooks/useQuiz';
 import { formatTime, cn } from './lib/utils';
 import { Difficulty, Category, Question, AssessmentReport, StudyMaterial, QuizSession } from './types/quiz';
-import { STUDY_MATERIALS } from './data/materials';
+import { STUDY_MATERIALS, findMaterialByConcept } from './data/materials';
 import ReactMarkdown from 'react-markdown';
 import { 
   BarChart, 
@@ -283,16 +283,28 @@ export default function App() {
     submitQuiz,
     nextSubTest,
     toggleMark,
-    setSession
+    setSession,
+    markMaterialRead
   } = useQuiz();
 
   const [view, setView] = useState<'dashboard' | 'quiz' | 'analytics' | 'report' | 'study'>('dashboard');
   const [selectedReport, setSelectedReport] = useState<AssessmentReport | null>(null);
   const [selectedMaterial, setSelectedMaterial] = useState<StudyMaterial | null>(null);
+  const [activeRemedialCycleId, setActiveRemedialCycleId] = useState<string | null>(null);
 
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [showSubTestConfirm, setShowSubTestConfirm] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
+  const iconOnlyFocusClass = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white";
+
+  const findMaterialFromRemedial = (concept: string, materialId?: string) => {
+    if (materialId) {
+      const byId = STUDY_MATERIALS.find(material => material.id === materialId);
+      if (byId) return byId;
+    }
+    const normalizedConcept = concept.toLowerCase().trim();
+    return STUDY_MATERIALS.find(material => material.concept.toLowerCase().trim() === normalizedConcept);
+  };
 
   const getModeName = (mode: string) => {
     switch(mode) {
@@ -315,14 +327,49 @@ export default function App() {
     setView('report');
   };
 
+  const startRemedialBaseline = (concept: any) => {
+    startSession('mini', undefined, { concept, remedialPhase: 'baseline' });
+    setView('quiz');
+  };
+
+  const continueToMaterial = (concept: any, cycleId: string) => {
+    const material = findMaterialByConcept(concept);
+    if (!material) return;
+    setActiveRemedialCycleId(cycleId);
+    setSelectedMaterial(material);
+    setView('study');
+  };
+
   const currentQuestion = session?.questions[session.currentIdx];
   const isLastQuestion = session && session.currentIdx === session.questions.length - 1;
   const currentSubTest = session?.subTests && session.currentSubTestIdx !== undefined ? session.subTests[session.currentSubTestIdx] : null;
 
   // --- Views ---
 
-  const DashboardView = () => (
+  const DashboardView = () => {
+    const ongoingCycles = progress.remedialCycles.filter(c => c.status !== 'completed');
+    const weeklyConceptDelta = progress.remedialCycles.reduce<Record<string, { concept: string; week: string; delta: number }>>((acc, cycle) => {
+      if (cycle.baselineScore === undefined || cycle.afterScore === undefined || !cycle.completedAt) return acc;
+      const weekKey = `${new Date(cycle.completedAt).getFullYear()}-W${Math.ceil(new Date(cycle.completedAt).getDate() / 7)}`;
+      const key = `${cycle.concept}-${weekKey}`;
+      if (!acc[key]) acc[key] = { concept: cycle.concept, week: weekKey, delta: 0 };
+      acc[key].delta += cycle.afterScore - cycle.baselineScore;
+      return acc;
+    }, {});
+
+    return (
     <div className="max-w-6xl mx-auto p-6 space-y-10 pb-32">
+      {ongoingCycles.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-3xl p-6 flex items-center justify-between gap-6">
+          <div>
+            <p className="text-xs font-black uppercase tracking-widest text-amber-700">Notifikasi Remedial</p>
+            <p className="text-slate-800 font-bold">Ada {ongoingCycles.length} siklus remedial belum tuntas. Lanjutkan dari dashboard report atau materi.</p>
+          </div>
+          <button onClick={() => setView('report')} className="px-4 py-2 rounded-xl bg-amber-500 text-white font-black text-xs uppercase tracking-widest">
+            Lanjut Remedial
+          </button>
+        </div>
+      )}
       {/* Hero Section - Bento Style */}
       <div className="grid md:grid-cols-3 gap-6">
         <div className="md:col-span-2 bg-slate-900 rounded-[48px] p-12 text-white relative overflow-hidden shadow-2xl shadow-slate-200">
@@ -411,6 +458,47 @@ export default function App() {
       </div>
 
       {/* Main Features */}
+      {progress.lastRemedialConcepts && progress.lastRemedialConcepts.length > 0 && (
+        <section className="space-y-5">
+          <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3">
+            <div className="bg-amber-500 w-2 h-8 rounded-full" />
+            Prioritas Belajar Hari Ini
+          </h2>
+          <div className="grid md:grid-cols-3 gap-5">
+            {progress.lastRemedialConcepts.slice(0, 3).map((item, idx) => {
+              const material = findMaterialFromRemedial(item.concept, item.materialId);
+              return (
+                <div key={`${item.concept}-${idx}`} className="bg-white p-6 rounded-3xl border border-amber-100 shadow-sm space-y-4">
+                  <div>
+                    <p className="text-[10px] text-amber-600 uppercase tracking-widest font-black">Akurasi Sesi Terakhir</p>
+                    <p className="text-2xl font-black text-slate-900">{item.accuracy}%</p>
+                    <p className="text-sm text-slate-500 font-semibold">{item.concept}</p>
+                  </div>
+                  {material ? (
+                    <button
+                      onClick={() => {
+                        setSelectedMaterial(material);
+                        setView('study');
+                      }}
+                      className="w-full bg-amber-500 text-white py-3 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-amber-400 transition-colors"
+                    >
+                      Pelajari konsep ini sekarang
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setView('study')}
+                      className="w-full bg-slate-900 text-white py-3 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-colors"
+                    >
+                      Buka Pustaka Materi
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       <section className="space-y-6">
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3">
@@ -510,8 +598,33 @@ export default function App() {
           ))}
         </div>
       </section>
+
+      <section className="space-y-6">
+        <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3">
+          <div className="bg-emerald-600 w-2 h-8 rounded-full" />
+          Improvement Delta per Konsep (Mingguan)
+        </h2>
+        <div className="grid md:grid-cols-2 gap-4">
+          {Object.values(weeklyConceptDelta).length > 0 ? Object.values(weeklyConceptDelta).map((item) => (
+            <div key={`${item.concept}-${item.week}`} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-xs text-slate-400 font-black uppercase tracking-widest">{item.week}</p>
+                <p className="font-black text-slate-900">{item.concept}</p>
+              </div>
+              <p className={cn("text-xl font-black", item.delta >= 0 ? "text-emerald-600" : "text-rose-600")}>
+                {item.delta >= 0 ? '+' : ''}{item.delta}
+              </p>
+            </div>
+          )) : (
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 text-slate-500 font-medium">
+              Belum ada data delta mingguan. Selesaikan siklus remedial (baseline → materi → mini-quiz ulang).
+            </div>
+          )}
+        </div>
+      </section>
     </div>
   );
+  };
 
   const QuizView = () => {
     if (!session || !currentQuestion) return null;
@@ -659,7 +772,10 @@ export default function App() {
                   </button>
                   <button 
                     onClick={() => {
-                      submitQuiz();
+                      const report = submitQuiz();
+                      if (report) {
+                        setSelectedReport(report);
+                      }
                       setShowSubmitConfirm(false);
                       setView('report');
                       window.scrollTo(0, 0);
@@ -825,7 +941,8 @@ export default function App() {
           <div className="flex items-center gap-6">
             <button 
               onClick={() => setView('dashboard')} 
-              className="p-3 hover:bg-slate-50 border border-slate-200 rounded-2xl text-slate-600 transition-all shadow-sm hover:shadow-md"
+              aria-label="Kembali ke Dashboard"
+              className={cn("p-3 hover:bg-slate-50 border border-slate-200 rounded-2xl text-slate-600 transition-all shadow-sm hover:shadow-md", iconOnlyFocusClass)}
             >
               <ChevronLeft size={24} />
             </button>
@@ -884,6 +1001,33 @@ export default function App() {
                   <p className="text-xs text-slate-500 font-medium">Analisis komparatif skor PTN 2025</p>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-[40px] p-8 border border-slate-200 shadow-sm space-y-6">
+            <h3 className="text-2xl font-black text-slate-900">3 Konsep Prioritas Lemah</h3>
+            <div className="grid md:grid-cols-3 gap-4">
+              {selectedReport.prioritizedWeakConcepts?.map((weak) => {
+                const existingCycle = progress.remedialCycles.find((c) => c.concept === weak.concept && c.status !== 'completed');
+                return (
+                  <div key={weak.concept} className="p-5 rounded-2xl bg-rose-50 border border-rose-100 space-y-4">
+                    <div>
+                      <p className="text-xs text-rose-500 font-black uppercase tracking-widest">Mastery</p>
+                      <p className="text-2xl font-black text-rose-700">{weak.score}%</p>
+                    </div>
+                    <p className="font-black text-slate-900">{weak.concept}</p>
+                    {!existingCycle ? (
+                      <button onClick={() => startRemedialBaseline(weak.concept)} className="w-full py-2.5 rounded-xl bg-indigo-600 text-white font-black text-xs uppercase tracking-widest">
+                        Mulai Baseline Quiz
+                      </button>
+                    ) : (
+                      <button onClick={() => continueToMaterial(weak.concept, existingCycle.id)} className="w-full py-2.5 rounded-xl bg-emerald-600 text-white font-black text-xs uppercase tracking-widest">
+                        Baca Materi & Quiz Ulang
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -952,6 +1096,45 @@ export default function App() {
               </div>
             </div>
           </div>
+
+          <div className="bg-white rounded-[56px] p-10 border border-slate-200 shadow-sm space-y-8">
+            <div className="flex items-center gap-4">
+              <div className="bg-amber-50 p-3 rounded-2xl">
+                <AlertTriangle size={24} className="text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-2xl font-black text-slate-900">Rekomendasi Remedial</h3>
+                <p className="text-sm text-slate-500 font-medium">Konsep dengan akurasi terendah dari sesi ini.</p>
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-6">
+              {(selectedReport.remedialConcepts ?? []).slice(0, 3).map((item, idx) => {
+                const material = findMaterialFromRemedial(item.concept, item.materialId);
+                return (
+                  <div key={`${item.concept}-${idx}`} className="p-6 rounded-[32px] border border-amber-100 bg-amber-50/40 space-y-5">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Akurasi</p>
+                      <p className="text-3xl font-black text-slate-900">{item.accuracy}%</p>
+                      <p className="text-sm font-semibold text-slate-600 mt-1">{item.concept}</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (material) setSelectedMaterial(material);
+                        setView('study');
+                      }}
+                      className="w-full bg-indigo-600 text-white py-3.5 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-indigo-500 transition-colors"
+                    >
+                      Pelajari konsep ini sekarang
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            {(selectedReport.remedialConcepts ?? []).length === 0 && (
+              <p className="text-slate-500 font-medium">Belum ada data remedial untuk laporan ini.</p>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -974,7 +1157,11 @@ export default function App() {
       <div className="max-w-6xl mx-auto p-6 space-y-10 pb-32">
         <header className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <button onClick={() => setView('dashboard')} className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-600 hover:bg-slate-50 transition-colors shadow-sm">
+            <button
+              onClick={() => setView('dashboard')}
+              aria-label="Kembali ke Dashboard"
+              className={cn("p-3 bg-white border border-slate-200 rounded-2xl text-slate-600 hover:bg-slate-50 transition-colors shadow-sm", iconOnlyFocusClass)}
+            >
               <ChevronLeft size={24} />
             </button>
             <div>
@@ -1128,7 +1315,8 @@ export default function App() {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setView('dashboard')}
-                className="p-2 bg-white/10 hover:bg-white/20 rounded-2xl text-white transition-colors"
+                aria-label="Kembali ke Dashboard"
+                className={cn("p-2 bg-white/10 hover:bg-white/20 rounded-2xl text-white transition-colors", iconOnlyFocusClass)}
               >
                 <ChevronLeft size={20} />
               </button>
@@ -1353,6 +1541,25 @@ export default function App() {
                       ))}
                     </div>
                   </div>
+
+                  {activeRemedialCycleId && (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-[28px] p-6 space-y-4">
+                      <p className="text-xs font-black uppercase tracking-widest text-emerald-700">Langkah Berikutnya</p>
+                      <p className="text-slate-800 font-bold">Setelah membaca materi, lanjutkan mini-quiz khusus konsep ini untuk mengukur score-after.</p>
+                      <button
+                        onClick={() => {
+                          markMaterialRead(activeRemedialCycleId);
+                          startSession('mini', undefined, { concept: selectedMaterial.concept, remedialPhase: 'after', cycleId: activeRemedialCycleId });
+                          setSelectedMaterial(null);
+                          setActiveRemedialCycleId(null);
+                          setView('quiz');
+                        }}
+                        className="px-6 py-3 rounded-2xl bg-emerald-600 text-white font-black text-xs uppercase tracking-widest"
+                      >
+                        Mulai Mini-Quiz Konsep Ini
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1376,13 +1583,28 @@ export default function App() {
           >
             <DashboardView />
             <nav className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-white/80 backdrop-blur-xl border border-slate-200 px-8 py-4 rounded-[32px] shadow-2xl shadow-indigo-100 flex gap-12 z-50">
-              <button onClick={() => setView('dashboard')} className={cn("p-3 rounded-2xl transition-all", "bg-indigo-600 text-white shadow-xl shadow-indigo-200")}>
+              <button
+                onClick={() => setView('dashboard')}
+                aria-label="Buka Dashboard"
+                aria-current={view === 'dashboard' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "bg-indigo-600 text-white shadow-xl shadow-indigo-200", iconOnlyFocusClass)}
+              >
                 <Home size={24} />
               </button>
-              <button onClick={() => setView('study')} className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600")}>
+              <button
+                onClick={() => setView('study')}
+                aria-label="Buka Belajar Mandiri"
+                aria-current={view === 'study' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600", iconOnlyFocusClass)}
+              >
                 <BookOpen size={24} />
               </button>
-              <button onClick={() => setView('analytics')} className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600")}>
+              <button
+                onClick={() => setView('analytics')}
+                aria-label="Buka Analisis Performa"
+                aria-current={view === 'analytics' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600", iconOnlyFocusClass)}
+              >
                 <BarChart3 size={24} />
               </button>
             </nav>
@@ -1411,13 +1633,28 @@ export default function App() {
           >
             <AnalyticsView />
             <nav className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-white/80 backdrop-blur-xl border border-slate-200 px-8 py-4 rounded-[32px] shadow-2xl shadow-indigo-100 flex gap-12 z-50">
-              <button onClick={() => setView('dashboard')} className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600")}>
+              <button
+                onClick={() => setView('dashboard')}
+                aria-label="Buka Dashboard"
+                aria-current={view === 'dashboard' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600", iconOnlyFocusClass)}
+              >
                 <Home size={24} />
               </button>
-              <button onClick={() => setView('study')} className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600")}>
+              <button
+                onClick={() => setView('study')}
+                aria-label="Buka Belajar Mandiri"
+                aria-current={view === 'study' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600", iconOnlyFocusClass)}
+              >
                 <BookOpen size={24} />
               </button>
-              <button onClick={() => setView('analytics')} className={cn("p-3 rounded-2xl transition-all", "bg-indigo-600 text-white shadow-xl shadow-indigo-200")}>
+              <button
+                onClick={() => setView('analytics')}
+                aria-label="Buka Analisis Performa"
+                aria-current={view === 'analytics' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "bg-indigo-600 text-white shadow-xl shadow-indigo-200", iconOnlyFocusClass)}
+              >
                 <BarChart3 size={24} />
               </button>
             </nav>
@@ -1446,13 +1683,28 @@ export default function App() {
           >
             <StudyView />
             <nav className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-white/80 backdrop-blur-xl border border-slate-200 px-8 py-4 rounded-[32px] shadow-2xl shadow-indigo-100 flex gap-12 z-50">
-              <button onClick={() => setView('dashboard')} className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600")}>
+              <button
+                onClick={() => setView('dashboard')}
+                aria-label="Buka Dashboard"
+                aria-current={view === 'dashboard' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600", iconOnlyFocusClass)}
+              >
                 <Home size={24} />
               </button>
-              <button onClick={() => setView('study')} className={cn("p-3 rounded-2xl transition-all", "bg-indigo-600 text-white shadow-xl shadow-indigo-200")}>
+              <button
+                onClick={() => setView('study')}
+                aria-label="Buka Belajar Mandiri"
+                aria-current={view === 'study' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "bg-indigo-600 text-white shadow-xl shadow-indigo-200", iconOnlyFocusClass)}
+              >
                 <BookOpen size={24} />
               </button>
-              <button onClick={() => setView('analytics')} className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600")}>
+              <button
+                onClick={() => setView('analytics')}
+                aria-label="Buka Analisis Performa"
+                aria-current={view === 'analytics' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600", iconOnlyFocusClass)}
+              >
                 <BarChart3 size={24} />
               </button>
             </nav>
