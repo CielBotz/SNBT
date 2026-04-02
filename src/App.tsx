@@ -50,12 +50,26 @@ export default function App() {
 
   const currentQuestion = useMemo(() => {
     if (!session) return null;
-    return session.questions[session.currentIdx] ?? null;
+	  const answeredCount = session.answers.filter(a => a !== null).lengthconstconstonst progress = Math.round((answeredCount / session.questions.length) * 100) 
+	<div style={{ marginBottom: 12 }}>
+  <div style={{ fontSize: 12 }}>
+    {answeredCount}/{session.questions.length} terjawab
+  </div>
+  <div style={{ height: 8, background: '#eee', borderRadius: 4 }}>
+    <div
+      style={{
+        width: `${progress}%`,
+        height: '100%',
+        background: '#4caf50',
+        borderRadius: 4
+      }}
+    />
+  </div>
+</div>
+	return session.questions[session.currentIdx] ?? null;
   }, [session]);
 
-  const selectedPtnData = useMemo(() => PTN_DATA.find((ptn) => ptn.id === selectedPtn), [selectedPtn]);
-
-  useEffect(() => {
+  const selectedPtnData = useMemo(() => PTN_DATA.find((ptn) => ptn.id === selectedPtn), [selectedPtn]);useEffectfect(() => {
     const startedAt = performance.now();
     const timeout = window.setTimeout(() => {
       setBootLoading(false);
