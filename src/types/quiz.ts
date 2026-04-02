@@ -54,6 +54,22 @@ export interface UserProgress {
   materialMastery: { [concept: string]: number }; // 0-100 per concept
 }
 
+export interface SimulationAnalysis {
+  accuracy: number; // 0-100
+  speed: number; // 0-100
+  stability: number; // 0-100
+  panicZones: {
+    label: string;
+    type: 'time' | 'concept';
+    drop: number; // performance drop percentage
+  }[];
+  remedialPlan: {
+    weekStart: string;
+    focusConcepts: Concept[];
+    actions: string[];
+  };
+}
+
 export interface AssessmentReport {
   id: string;
   date: string;
@@ -68,6 +84,7 @@ export interface AssessmentReport {
     prodi: string;
     chance: number; // 0-100
   }[];
+  simulationAnalysis?: SimulationAnalysis;
 }
 
 export interface PTN {
@@ -87,7 +104,7 @@ export interface Prodi {
 }
 
 export interface QuizSession {
-  mode: 'tryout' | 'mini' | 'daily' | 'category';
+  mode: 'tryout' | 'mini' | 'daily' | 'category' | 'simulation';
   selectedCategory?: Category;
   questions: Question[];
   currentIdx: number;
@@ -95,6 +112,7 @@ export interface QuizSession {
   marked: { [questionId: string]: boolean }; // "Ragu-ragu" state
   startTime: number;
   timePerQuestion: { [questionId: string]: number };
+  questionStartedAt: number;
   isSubmitted: boolean;
   subTests?: {
     name: string;
