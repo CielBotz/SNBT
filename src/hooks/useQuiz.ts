@@ -118,7 +118,6 @@ export function useQuiz() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
   }, [progress]);
 
-  // Timer logic for sub-tests — check expiry only, no per-second state update
   useEffect(() => {
     if (session && !session.isSubmitted && session.subTests && session.currentSubTestIdx !== undefined) {
       const currentSubTest = session.subTests[session.currentSubTestIdx];
@@ -131,7 +130,6 @@ export function useQuiz() {
           const subTest = prev.subTests[prev.currentSubTestIdx];
           if (!subTest || subTest.expiresAt === 0 || Date.now() < subTest.expiresAt) return prev;
 
-          // Time is up — auto-advance or submit
           if (prev.currentSubTestIdx < prev.subTests.length - 1) {
             const nextIdx = prev.currentSubTestIdx + 1;
             const nextSubTest = prev.subTests[nextIdx];
@@ -157,62 +155,59 @@ export function useQuiz() {
     };
   }, [session?.mode, session?.isSubmitted, session?.currentSubTestIdx]);
 
-  const startSession = useCallback((mode: QuizSession['mode'], category?: Category) => {
+  const startSession = useCallback((
+    mode: QuizSession['mode'],
+    category?: Category,
+    options?: { concept?: Concept; remedialPhase?: 'baseline' | 'after'; cycleId?: string }
+  ) => {
     let selectedQuestions: Question[] = [];
     let subTests: QuizSession['subTests'] = [];
 
     if (mode === 'tryout') {
-      // Full Tryout: All sub-tests
       let currentIdxOffset = 0;
       const usedIds = new Set<string>();
 
       SUB_TEST_CONFIGS.forEach(config => {
-        // Filter questions by concept or category, excluding already used ones
-        const subPool = QUESTIONS.filter(q => 
-          !usedIds.has(q.id) && 
+        const subPool = QUESTIONS.filter(q =>
+          !usedIds.has(q.id) &&
           (q.concept === config.name || (q.category === config.category && q.concept.includes(config.name)))
         );
-        
-        // If pool is too small, fallback to category pool (excluding used)
+
         let finalPool = subPool;
         if (finalPool.length < config.count) {
           const catPool = QUESTIONS.filter(q => !usedIds.has(q.id) && q.category === config.category);
           finalPool = [...finalPool, ...catPool.filter(q => !finalPool.some(fq => fq.id === q.id))];
         }
 
-        // If still too small, fallback to any questions (even used) to prevent empty sub-tests
         if (finalPool.length < config.count) {
           const remainingNeeded = config.count - finalPool.length;
           const otherPool = QUESTIONS.filter(q => !finalPool.some(fq => fq.id === q.id));
-          // Shuffle otherPool and take what's needed
           const additional = [...otherPool].sort(() => Math.random() - 0.5).slice(0, remainingNeeded);
           finalPool = [...finalPool, ...additional];
         }
 
-        // Final safety check: if still empty (should only happen if QUESTIONS is empty), skip or fill with anything
         if (finalPool.length === 0 && QUESTIONS.length > 0) {
           finalPool = [QUESTIONS[Math.floor(Math.random() * QUESTIONS.length)]];
         }
-        
+
         const shuffled = [...finalPool].sort(() => Math.random() - 0.5).slice(0, config.count);
         shuffled.forEach(q => usedIds.add(q.id));
         selectedQuestions.push(...shuffled);
-        
+
         const indices = Array.from({ length: shuffled.length }, (_, i) => i + currentIdxOffset);
         if (indices.length > 0) {
           subTests?.push({
             name: config.name,
             questionIndices: indices,
             timeLimit: config.time,
-            expiresAt: 0, // set when sub-test becomes active
+            expiresAt: 0,
           });
           currentIdxOffset += shuffled.length;
         }
       });
     } else {
-      const pool = category 
-        ? QUESTIONS.filter(q => q.category === category)
-        : [...QUESTIONS];
+      const conceptPool = options?.concept ? pickConceptPool(options.concept) : null;
+      const pool = conceptPool ?? (category ? QUESTIONS.filter(q => q.category === category) : [...QUESTIONS]);
 
       const wrongPool = pool.filter(q => progress.wrongIds.includes(q.id));
       const normalPool = pool.filter(q => !progress.wrongIds.includes(q.id));
@@ -223,16 +218,21 @@ export function useQuiz() {
           ...normalPool.filter(q => q.difficulty === progress.currentDifficulty).sort(() => Math.random() - 0.5).slice(0, 3)
         ];
       } else if (mode === 'mini') {
+        const target = conceptPool ? 5 : 10;
         selectedQuestions = [
-          ...wrongPool.sort(() => Math.random() - 0.5).slice(0, 3),
-          ...normalPool.filter(q => q.difficulty === progress.currentDifficulty).sort(() => Math.random() - 0.5).slice(0, 7)
-        ];
+          ...wrongPool.sort(() => Math.random() - 0.5).slice(0, conceptPool ? 2 : 3),
+          ...normalPool.filter(q => q.difficulty === progress.currentDifficulty).sort(() => Math.random() - 0.5).slice(0, target)
+        ].slice(0, target);
+
+        if (selectedQuestions.length < target) {
+          const fill = pool.filter((q) => !selectedQuestions.some((sq) => sq.id === q.id)).sort(() => Math.random() - 0.5).slice(0, target - selectedQuestions.length);
+          selectedQuestions = [...selectedQuestions, ...fill];
+        }
       } else {
         selectedQuestions = pool.sort(() => Math.random() - 0.5).slice(0, 10);
       }
     }
 
-    // Activate the first sub-test's timer immediately
     const finalSubTests = (mode === 'tryout' && subTests && subTests.length > 0)
       ? subTests.map((st, i) => i === 0 ? { ...st, expiresAt: Date.now() + st.timeLimit * 1000 } : st)
       : subTests;
@@ -285,18 +285,12 @@ export function useQuiz() {
   const nextQuestion = () => {
     setSession(prev => {
       if (!prev) return prev;
-      
-      // If in sub-test mode, check if we can go to next question within sub-test
       if (prev.subTests && prev.currentSubTestIdx !== undefined) {
         const currentSubTest = prev.subTests[prev.currentSubTestIdx];
         const lastIdxInSubTest = currentSubTest.questionIndices[currentSubTest.questionIndices.length - 1];
-        
-        if (prev.currentIdx < lastIdxInSubTest) {
-          return { ...prev, currentIdx: prev.currentIdx + 1 };
-        }
-        return prev; // Lock within sub-test
+        if (prev.currentIdx < lastIdxInSubTest) return { ...prev, currentIdx: prev.currentIdx + 1 };
+        return prev;
       }
-
       if (prev.currentIdx >= prev.questions.length - 1) return prev;
       return { ...prev, currentIdx: prev.currentIdx + 1 };
     });
@@ -305,37 +299,29 @@ export function useQuiz() {
   const prevQuestion = () => {
     setSession(prev => {
       if (!prev || prev.currentIdx <= 0) return prev;
-      
-      // If in sub-test mode, check if we can go to prev question within sub-test
       if (prev.subTests && prev.currentSubTestIdx !== undefined) {
         const currentSubTest = prev.subTests[prev.currentSubTestIdx];
         const firstIdxInSubTest = currentSubTest.questionIndices[0];
-        
-        if (prev.currentIdx > firstIdxInSubTest) {
-          return { ...prev, currentIdx: prev.currentIdx - 1 };
-        }
-        return prev; // Lock within sub-test
+        if (prev.currentIdx > firstIdxInSubTest) return { ...prev, currentIdx: prev.currentIdx - 1 };
+        return prev;
       }
-
       return { ...prev, currentIdx: prev.currentIdx - 1 };
     });
   };
 
   const validateAnswer = (q: Question, answer: any): boolean => {
     if (answer === undefined) return false;
-    if (q.type === 'multiple_choice') {
-      return answer === q.correctAnswer;
-    } else if (q.type === 'complex_multiple_choice') {
+    if (q.type === 'multiple_choice') return answer === q.correctAnswer;
+    if (q.type === 'complex_multiple_choice') {
       const userAnswers = answer as boolean[];
       return q.complexOptions?.every((opt, idx) => opt.correct === userAnswers[idx]) ?? false;
-    } else if (q.type === 'short_answer') {
-      return Number(answer) === q.shortAnswerCorrect;
     }
+    if (q.type === 'short_answer') return Number(answer) === q.shortAnswerCorrect;
     return false;
   };
 
-  const submitQuiz = () => {
-    if (!session || session.isSubmitted) return;
+  const submitQuiz = (): AssessmentReport | null => {
+    if (!session || session.isSubmitted) return null;
 
     const results = session.questions.map(q => ({
       id: q.id,
@@ -363,19 +349,13 @@ export function useQuiz() {
 
     const { rank, percentile, totalParticipants } = getNationalStats(irtScore);
 
-    // Category scores
     const categoryScores: any = {};
     const categories: Category[] = ['TPS', 'Literasi Indonesia', 'Literasi Inggris', 'Penalaran Matematika'];
     categories.forEach(cat => {
       const catResults = results.filter(r => r.category === cat);
-      if (catResults.length > 0) {
-        categoryScores[cat] = calculateIRTScore(catResults.map(r => ({
-          correct: r.correct,
-          irtParams: r.irtParams
-        })));
-      } else {
-        categoryScores[cat] = 0;
-      }
+      categoryScores[cat] = catResults.length > 0
+        ? calculateIRTScore(catResults.map(r => ({ correct: r.correct, irtParams: r.irtParams })))
+        : 0;
     });
 
     // Material Mastery (session accumulator)
@@ -388,8 +368,12 @@ export function useQuiz() {
       if (r.correct) sessionMastery[r.concept].correct += 1;
     });
 
-    // Rationalization Logic
-    const recommendations = PTN_DATA.flatMap(ptn => 
+    const prioritizedWeakConcepts = Object.entries(materialMastery)
+      .map(([concept, score]) => ({ concept: concept as Concept, score: score as number }))
+      .sort((a, b) => a.score - b.score)
+      .slice(0, 3);
+
+    const recommendations = PTN_DATA.flatMap(ptn =>
       ptn.prodi.map(prodi => {
         const diff = irtScore - prodi.passingGrade;
         let chance = 0;
@@ -399,12 +383,7 @@ export function useQuiz() {
         else if (diff >= -20) chance = 35;
         else if (diff >= -50) chance = 15;
         else chance = 5;
-
-        return {
-          ptn: ptn.name,
-          prodi: prodi.name,
-          chance
-        };
+        return { ptn: ptn.name, prodi: prodi.name, chance };
       })
     ).sort((a, b) => b.chance - a.chance).slice(0, 5);
 
@@ -450,8 +429,8 @@ export function useQuiz() {
           const idx = newWrongIds.indexOf(r.id);
           if (idx > -1) newWrongIds.splice(idx, 1);
           if (!newCompletedIds.includes(r.id)) newCompletedIds.push(r.id);
-        } else {
-          if (!newWrongIds.includes(r.id)) newWrongIds.push(r.id);
+        } else if (!newWrongIds.includes(r.id)) {
+          newWrongIds.push(r.id);
         }
 
         const question = session.questions.find(q => q.id === r.id);
@@ -515,7 +494,7 @@ export function useQuiz() {
         nextQuestionPerformance[r.id] = nextStat;
       });
 
-      let newDifficulty = prev.currentDifficulty;
+      let newDifficulty: Difficulty = prev.currentDifficulty;
       const accuracy = correctCount / (session.questions.length || 1);
       if (accuracy > 0.8) {
         if (newDifficulty === 'easy') newDifficulty = 'medium';
@@ -565,16 +544,15 @@ export function useQuiz() {
     });
 
     setSession(prev => prev ? { ...prev, isSubmitted: true } : null);
+    return report;
   };
 
   const nextSubTest = () => {
     setSession(prev => {
       if (!prev || prev.isSubmitted || prev.currentSubTestIdx === undefined || !prev.subTests) return prev;
-
       if (prev.currentSubTestIdx < prev.subTests.length - 1) {
         const nextIdx = prev.currentSubTestIdx + 1;
         const nextSubTest = prev.subTests[nextIdx];
-
         if (nextSubTest && nextSubTest.questionIndices && nextSubTest.questionIndices.length > 0) {
           const updatedSubTests = prev.subTests.map((st, i) =>
             i === nextIdx ? { ...st, expiresAt: Date.now() + st.timeLimit * 1000 } : st
@@ -591,6 +569,17 @@ export function useQuiz() {
     });
   };
 
+  const markMaterialRead = (cycleId: string) => {
+    setProgress(prev => ({
+      ...prev,
+      remedialCycles: prev.remedialCycles.map((cycle) =>
+        cycle.id === cycleId
+          ? { ...cycle, materialReadAt: new Date().toISOString(), status: cycle.status === 'started' ? 'material_pending' : cycle.status }
+          : cycle
+      )
+    }));
+  };
+
   return {
     progress,
     session,
@@ -602,5 +591,6 @@ export function useQuiz() {
     nextSubTest,
     toggleMark,
     setSession,
+    markMaterialRead,
   };
 }
