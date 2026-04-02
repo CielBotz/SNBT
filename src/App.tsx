@@ -23,6 +23,12 @@ const parseShortAnswer = (value: string): QuestionAnswer => {
   return Number.isFinite(parsedValue) ? parsedValue : null;
 };
 
+const parseShortAnswer = (value: string): QuestionAnswer => {
+  if (value.trim() === '') return null;
+  const parsedValue = Number(value);
+  return Number.isFinite(parsedValue) ? parsedValue : null;
+};
+
 function QuestionCard({
   question,
   answer,
