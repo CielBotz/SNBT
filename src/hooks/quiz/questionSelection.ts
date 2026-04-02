@@ -13,8 +13,9 @@ export interface SubTestConfig {
 
 const DEFAULT_SUBTEST_CONFIG: SubTestConfig[] = [
   { name: 'TPS', questionCount: 30, timeLimitSec: 30 * 60, category: 'TPS' },
-  { name: 'Literasi', questionCount: 30, timeLimitSec: 30 * 60, category: 'Literasi Indonesia' },
-  { name: 'Penalaran', questionCount: 30, timeLimitSec: 30 * 60, category: 'Penalaran Matematika' },
+  { name: 'Literasi Indonesia', questionCount: 20, timeLimitSec: 20 * 60, category: 'Literasi Indonesia' },
+  { name: 'Literasi Inggris', questionCount: 20, timeLimitSec: 20 * 60, category: 'Literasi Inggris' },
+  { name: 'Penalaran Matematika', questionCount: 20, timeLimitSec: 20 * 60, category: 'Penalaran Matematika' },
 ];
 
 const takeWithFallback = (preferredPool: Question[], fallbackPool: Question[], count: number): Question[] => {
@@ -60,7 +61,7 @@ export const pickQuestionsByMode = (
       const perCategoryPool =
         subTest.category === undefined
           ? basePool
-          : allQuestions.filter((question) => (category ? question.category === category : true) && question.category === subTest.category);
+          : basePool.filter((question) => question.category === subTest.category);
 
       const cleanCategoryPool = perCategoryPool.filter((question) => !usedQuestionIds.has(question.id));
       const cleanFallbackPool = mixed.filter((question) => !usedQuestionIds.has(question.id));
