@@ -14,6 +14,8 @@ export interface ComplexOption {
   correct: boolean; // True for Benar/Ya, False for Salah/Tidak
 }
 
+export type QuestionValidityStatus = 'valid_snbt_like' | 'needs_revision' | 'retired';
+
 export interface Question {
   id: string;
   category: Category;
@@ -26,6 +28,7 @@ export interface Question {
   shortAnswerCorrect?: number; // For short_answer (number only)
   correctAnswer?: number; // For multiple_choice (index)
   explanation: string;
+  validityStatus?: QuestionValidityStatus;
   irtParams: {
     difficulty: number; // b parameter (-3 to 3)
     discrimination: number; // a parameter (0 to 2)

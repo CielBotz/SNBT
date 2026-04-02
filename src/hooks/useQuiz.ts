@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Question, UserProgress, QuizSession, Difficulty, Category, AssessmentReport } from '../types/quiz';
-import { QUESTIONS } from '../data/questions';
+import { QUESTIONS, TRYOUT_BLUEPRINT } from '../data/questions';
+import { getValidQuestionsForSubtest } from '../data/questionGovernance';
 import { calculateIRTScore, getNationalStats } from '../lib/irt';
 import { PTN_DATA } from '../data/ptn';
 
@@ -32,7 +33,14 @@ const SUB_TEST_CONFIGS = [
   { name: 'Literasi Bahasa Indonesia', category: 'Literasi Indonesia', count: 30, time: 2700 },
   { name: 'Literasi Bahasa Inggris', category: 'Literasi Inggris', count: 20, time: 900 },
   { name: 'Penalaran Matematika', category: 'Penalaran Matematika', count: 20, time: 1800 },
-];
+].map((config) => {
+  const blueprint = TRYOUT_BLUEPRINT.find((bp) => bp.subtest === config.name);
+  return {
+    ...config,
+    allowedTypes: blueprint?.stimulusTypes,
+    targetComplexity: blueprint?.complexityTarget,
+  };
+});
 
 export function useQuiz() {
   const [progress, setProgress] = useState<UserProgress>(() => {
@@ -100,33 +108,34 @@ export function useQuiz() {
       const usedIds = new Set<string>();
 
       SUB_TEST_CONFIGS.forEach(config => {
-        // Filter questions by concept or category, excluding already used ones
-        const subPool = QUESTIONS.filter(q => 
-          !usedIds.has(q.id) && 
-          (q.concept === config.name || (q.category === config.category && q.concept.includes(config.name)))
-        );
-        
-        // If pool is too small, fallback to category pool (excluding used)
-        let finalPool = subPool;
-        if (finalPool.length < config.count) {
-          const catPool = QUESTIONS.filter(q => !usedIds.has(q.id) && q.category === config.category);
-          finalPool = [...finalPool, ...catPool.filter(q => !finalPool.some(fq => fq.id === q.id))];
-        }
+        const blueprintPool = getValidQuestionsForSubtest(QUESTIONS, config.name)
+          .filter(q => !usedIds.has(q.id))
+          .filter(q => !config.allowedTypes || config.allowedTypes.includes(q.type));
 
-        // If still too small, fallback to any questions (even used) to prevent empty sub-tests
+        const targetEasy = Math.round(config.count * (config.targetComplexity?.easy ?? 0));
+        const targetTrap = Math.round(config.count * (config.targetComplexity?.trap ?? 0));
+        const targetMedium = Math.max(0, config.count - targetEasy - targetTrap);
+
+        const easyPool = blueprintPool.filter(q => q.difficulty === 'easy');
+        const mediumPool = blueprintPool.filter(q => q.difficulty === 'medium');
+        const trapPool = blueprintPool.filter(q => q.difficulty === 'trap');
+
+        const pickRandom = (pool: Question[], n: number) => [...pool].sort(() => Math.random() - 0.5).slice(0, n);
+
+        let finalPool: Question[] = [
+          ...pickRandom(easyPool, targetEasy),
+          ...pickRandom(mediumPool, targetMedium),
+          ...pickRandom(trapPool, targetTrap),
+        ];
+
         if (finalPool.length < config.count) {
-          const remainingNeeded = config.count - finalPool.length;
-          const otherPool = QUESTIONS.filter(q => !finalPool.some(fq => fq.id === q.id));
-          // Shuffle otherPool and take what's needed
-          const additional = [...otherPool].sort(() => Math.random() - 0.5).slice(0, remainingNeeded);
+          const additional = blueprintPool
+            .filter(q => !finalPool.some(fq => fq.id === q.id))
+            .sort(() => Math.random() - 0.5)
+            .slice(0, config.count - finalPool.length);
           finalPool = [...finalPool, ...additional];
         }
 
-        // Final safety check: if still empty (should only happen if QUESTIONS is empty), skip or fill with anything
-        if (finalPool.length === 0 && QUESTIONS.length > 0) {
-          finalPool = [QUESTIONS[Math.floor(Math.random() * QUESTIONS.length)]];
-        }
-        
         const shuffled = [...finalPool].sort(() => Math.random() - 0.5).slice(0, config.count);
         shuffled.forEach(q => usedIds.add(q.id));
         selectedQuestions.push(...shuffled);
