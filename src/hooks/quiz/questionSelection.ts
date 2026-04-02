@@ -5,6 +5,9 @@ const shuffle = <T,>(items: T[]): T[] => [...items].sort(() => Math.random() - 0
 
 const take = <T,>(items: T[], count: number): T[] => items.slice(0, Math.max(0, count));
 
+const SECONDS_PER_QUESTION = 60;
+const MIN_SUBTEST_FILL_RATIO_WARNING = 0.7;
+
 export interface SubTestConfig {
   name: string;
   questionCount: number;
@@ -20,6 +23,25 @@ const DEFAULT_SUBTEST_CONFIG: SubTestConfig[] = SUBTEST_BLUEPRINTS.map((blueprin
   category: blueprint.category,
   selector: (question) => resolveSubtest(question) === blueprint.subtest,
 }));
+
+const DEFAULT_SUBTEST_CONFIG: SubTestConfig[] = SUBTEST_BLUEPRINTS.map((blueprint) => {
+  const configured = PRODUCT_SUBTEST_CONFIG.find((subtest) => subtest.name === blueprint.subtest);
+
+  if (!configured) {
+    return {
+      name: blueprint.subtest,
+      category: blueprint.category,
+      questionCount: blueprint.quota,
+      timeLimitSec: blueprint.quota * SECONDS_PER_QUESTION,
+    };
+  }
+
+  return {
+    ...configured,
+    category: blueprint.category,
+    questionCount: blueprint.quota,
+  };
+});
 
 const takeWithFallback = (preferredPool: Question[], fallbackPool: Question[], count: number): Question[] => {
   const preferred = take(shuffle(preferredPool), count);
@@ -70,6 +92,13 @@ export const pickQuestionsByMode = (
       const cleanCategoryPool = perCategoryPool.filter((question) => !usedQuestionIds.has(question.id));
       const cleanFallbackPool = mixed.filter((question) => !usedQuestionIds.has(question.id));
       const chunk = takeWithFallback(cleanCategoryPool, cleanFallbackPool, subTest.questionCount);
+
+      const minExpectedCount = Math.ceil(subTest.questionCount * MIN_SUBTEST_FILL_RATIO_WARNING);
+      if (chunk.length < minExpectedCount) {
+        console.warn(
+          `[questionSelection] Subtest "${subTest.name}" selected ${chunk.length}/${subTest.questionCount} questions (category: ${subTest.category ?? 'ALL'}).`,
+        );
+      }
 
       for (const question of chunk) usedQuestionIds.add(question.id);
       selected.push(...chunk);
