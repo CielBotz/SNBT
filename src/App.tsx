@@ -56,30 +56,17 @@ function QuestionCard({
     );
   }
 
-  return (
-    <div className="space-y-3">
-      <p className="font-semibold text-slate-700">{question.question}</p>
-      <div className="space-y-2">
-        {question.options?.map((option, idx) => {
-          const selected = answer === idx;
-          return (
-            <button
-              key={`${question.id}-${idx}`}
-              type="button"
-              disabled={submitted}
-              onClick={() => onAnswer(idx)}
-              className={`w-full rounded-lg border p-3 text-left transition ${
-                selected ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 hover:border-slate-300'
-              }`}
-            >
-              {String.fromCharCode(65 + idx)}. {option}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+const SESSION_MODES: { mode: QuizSession['mode']; label: string }[] = [
+  { mode: 'mini', label: 'Mini Quiz' },
+  { mode: 'daily', label: 'Daily 5' },
+  { mode: 'drill15', label: 'Drill 15' },
+  { mode: 'tryout', label: 'Tryout' },
+  { mode: 'simulation', label: 'Simulation' },
+  { mode: 'category', label: 'Category Focus' },
+  { mode: 'targeted', label: 'Targeted Concept' },
+];
+
+type AppView = 'home' | 'quiz' | 'result' | 'dashboard' | 'materials' | 'target';
 
 export default function App() {
   const {
@@ -95,8 +82,10 @@ export default function App() {
     setTarget,
   } = useQuiz();
 
-  const [view, setView] = useState<'home' | 'quiz' | 'result'>('home');
+  const [view, setView] = useState<AppView>('home');
   const [now, setNow] = useState(() => Date.now());
+  const [selectedPtnId, setSelectedPtnId] = useState<string>(PTN_DATA[0]?.id ?? '');
+  const [selectedProdiId, setSelectedProdiId] = useState<string>(PTN_DATA[0]?.prodi[0]?.id ?? '');
 
   const [onboardingTarget, setOnboardingTarget] = useState<UserTarget>(() => ({
     ptnId: progress.target?.ptnId ?? '',
@@ -219,6 +208,13 @@ export default function App() {
     submitQuiz();
     setView('result');
   }, [session?.isSubmitted, submitQuiz, view]);
+
+  useEffect(() => {
+    if (!selectedPtn) return;
+    if (!selectedPtn.prodi.some((prodi) => prodi.id === selectedProdiId)) {
+      setSelectedProdiId(selectedPtn.prodi[0]?.id ?? '');
+    }
+  }, [selectedPtn, selectedProdiId]);
 
   const activeSubTest = useMemo(() => {
     if (!session?.subTests?.length) return null;
@@ -397,7 +393,7 @@ export default function App() {
 
   if (view === 'result') {
     return (
-      <main className="mx-auto flex min-h-screen max-w-3xl flex-col justify-center gap-4 px-6 py-10">
+      <main className="mx-auto flex min-h-screen max-w-4xl flex-col justify-center gap-4 px-6 py-10">
         <h2 className="text-2xl font-bold text-slate-900">Quiz selesai</h2>
         <p className="text-slate-600">
           Total sesi tersimpan: <span className="font-semibold">{progress.reports?.length ?? 0}</span>
@@ -426,7 +422,7 @@ export default function App() {
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-6 py-10">
       <header className="flex items-center justify-between">
         <h2 className="inline-flex items-center gap-2 text-xl font-bold text-slate-900">
-          <BookOpen size={20} /> Mode Quiz
+          <BookOpen size={20} /> Mode Quiz ({session?.mode ?? '-'})
         </h2>
         <div className="text-right">
           <span className="block text-sm text-slate-500">
@@ -442,7 +438,7 @@ export default function App() {
 
       {session && currentQuestion ? (
         <>
-          <QuestionCard
+          <QuestionRenderer
             question={currentQuestion}
             answer={session.answers[currentQuestion.id]}
             onAnswer={answerQuestion}
