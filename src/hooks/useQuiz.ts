@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { Question, UserProgress, QuizSession, Difficulty, Category, AssessmentReport, Concept } from '../types/quiz';
 import { Question, UserProgress, QuizSession, Difficulty, Category, AssessmentReport, QuestionPerformanceStat } from '../types/quiz';
 import { QUESTIONS } from '../data/questions';
 import { applyTryoutEquating, calculateIRTScore, getNationalStats } from '../lib/irt';
@@ -23,6 +24,7 @@ const INITIAL_PROGRESS: UserProgress = {
   currentDifficulty: 'easy',
   reports: [],
   materialMastery: {},
+  remedialCycles: [],
   questionPerformance: {},
 };
 
@@ -38,6 +40,13 @@ const SUB_TEST_CONFIGS = [
   { name: 'Penalaran Matematika', category: 'Penalaran Matematika', count: 20, time: 1800 },
 ];
 
+const pickConceptPool = (concept: Concept) => {
+  const normalized = concept.toLowerCase();
+  const strict = QUESTIONS.filter((q) => q.concept === concept);
+  if (strict.length > 0) return strict;
+
+  const fuzzy = QUESTIONS.filter((q) => q.concept.toLowerCase().includes(normalized) || normalized.includes(q.concept.toLowerCase()));
+  return fuzzy.length > 0 ? fuzzy : QUESTIONS;
 const TRYOUT_PACKAGES = ['TO-A', 'TO-B', 'TO-C'];
 
 function evaluateQuestionFlags(stat: QuestionPerformanceStat): string[] {
@@ -102,6 +111,7 @@ export function useQuiz() {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
+      return { ...INITIAL_PROGRESS, ...parsed, materialMastery: parsed.materialMastery ?? {}, remedialCycles: parsed.remedialCycles ?? [] };
       return {
         ...INITIAL_PROGRESS,
         ...parsed,
@@ -237,6 +247,22 @@ export function useQuiz() {
       ? subTests.map((st, i) => i === 0 ? { ...st, expiresAt: Date.now() + st.timeLimit * 1000 } : st)
       : subTests;
 
+    let remedial: QuizSession['remedial'];
+    if (options?.concept && options.remedialPhase) {
+      const cycleId = options.cycleId ?? `rem-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+      remedial = { cycleId, concept: options.concept, phase: options.remedialPhase };
+      if (options.remedialPhase === 'baseline') {
+        setProgress(prev => ({
+          ...prev,
+          remedialCycles: [{
+            id: cycleId,
+            concept: options.concept!,
+            startedAt: new Date().toISOString(),
+            status: 'started',
+          }, ...prev.remedialCycles],
+        }));
+      }
+    }
     const packageId = mode === 'tryout'
       ? TRYOUT_PACKAGES[Math.floor(Math.random() * TRYOUT_PACKAGES.length)]
       : undefined;
@@ -253,6 +279,7 @@ export function useQuiz() {
       isSubmitted: false,
       subTests: mode === 'tryout' ? finalSubTests : undefined,
       currentSubTestIdx: mode === 'tryout' ? 0 : undefined,
+      remedial,
       packageId,
     });
   }, [progress]);
@@ -340,6 +367,7 @@ export function useQuiz() {
     const correctCount = results.filter(r => r.correct).length;
     const today = new Date().toISOString().split('T')[0];
 
+    const irtScore = calculateIRTScore(results.map(r => ({ correct: r.correct, irtParams: r.irtParams })));
     // IRT Scoring
     const rawIrtScore = calculateIRTScore(results.map(r => ({
       correct: r.correct,
@@ -358,6 +386,14 @@ export function useQuiz() {
         : 0;
     });
 
+    const materialMastery: any = {};
+    results.forEach(r => {
+      if (!materialMastery[r.concept]) materialMastery[r.concept] = { correct: 0, total: 0 };
+      materialMastery[r.concept].total += 1;
+      if (r.correct) materialMastery[r.concept].correct += 1;
+    });
+    Object.keys(materialMastery).forEach(key => {
+      materialMastery[key] = Math.round((materialMastery[key].correct / (materialMastery[key].total || 1)) * 100);
     // Material Mastery (session accumulator)
     const sessionMastery: MaterialMasteryAccumulator = {};
     results.forEach(r => {
@@ -395,6 +431,9 @@ export function useQuiz() {
       nationalRank: rank,
       totalParticipants,
       percentile,
+      materialMastery,
+      recommendations,
+      prioritizedWeakConcepts,
       materialMastery: {} as AssessmentReport['materialMastery'],
       recommendations
       materialMastery,
@@ -504,6 +543,24 @@ export function useQuiz() {
         else if (newDifficulty === 'medium') newDifficulty = 'easy';
       }
 
+      let updatedCycles = prev.remedialCycles;
+      if (session.remedial) {
+        const conceptScore = materialMastery[session.remedial.concept] ?? 0;
+        updatedCycles = prev.remedialCycles.map((cycle) => {
+          if (cycle.id !== session.remedial!.cycleId) return cycle;
+          if (session.remedial?.phase === 'baseline') {
+            return { ...cycle, baselineScore: conceptScore, status: 'material_pending' as const };
+          }
+          const baseline = cycle.baselineScore ?? conceptScore;
+          const delta = conceptScore - baseline;
+          return {
+            ...cycle,
+            afterScore: conceptScore,
+            completedAt: new Date().toISOString(),
+            status: delta >= 10 ? 'completed' as const : 'needs_continue' as const,
+          };
+        });
+      }
       const aggregateMastery = { ...(prev.materialMastery ?? {}) };
       Object.entries(sessionMastery).forEach(([concept, sessionValue]) => {
         const previous = aggregateMastery[concept] ?? { correct: 0, total: 0 };
@@ -539,6 +596,7 @@ export function useQuiz() {
         materialMastery: { ...(prev.materialMastery ?? {}), ...materialMastery },
         lastRemedialConcepts: report.remedialConcepts ?? [],
         reports: [report, ...prev.reports].slice(0, 10),
+        remedialCycles: updatedCycles,
         questionPerformance: nextQuestionPerformance,
       };
     });
