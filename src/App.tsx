@@ -24,7 +24,21 @@ import { QuestionRenderer } from './components/quiz/QuestionRenderer';
 type AppView = 'dashboard' | 'tryout' | 'simulation' | 'target' | 'materials' | 'review';
 
 export default function App() {
-  const { session, progress, startSession, answerQuestion, nextQuestion, prevQuestion, submitQuiz, nextSubTest, setSession, setTarget } = useQuiz();
+  const {
+    session,
+    progress,
+    startSession,
+    answerQuestion,
+    nextQuestion,
+    prevQuestion,
+    submitQuiz,
+    nextSubTest,
+    toggleMark,
+    setSession,
+    lastDrillResult,
+    revisionPriorityQueue,
+    setTarget,
+  } = useQuiz();
 
   const [view, setView] = useState<AppView>('dashboard');
   const [now, setNow] = useState(() => Date.now());
@@ -78,6 +92,18 @@ export default function App() {
     return session.subTests[session.currentSubTestIdx ?? 0] ?? null;
   }, [session]);
 
+  const isAtSubTestEnd = useMemo(() => {
+    if (!session || !activeSubTest?.questionIndices?.length) return false;
+    const subTestLastIdx = activeSubTest.questionIndices[activeSubTest.questionIndices.length - 1];
+    return session.currentIdx === subTestLastIdx;
+  }, [activeSubTest, session]);
+
+  const hasNextSubTest = useMemo(() => {
+    if (!session?.subTests?.length) return false;
+    const currentSubTestIdx = session.currentSubTestIdx ?? 0;
+    return currentSubTestIdx < session.subTests.length - 1;
+  }, [session]);
+
   const subTestRemainingSec = useMemo(() => {
     if (!activeSubTest?.expiresAt) return null;
     return Math.max(0, Math.ceil((activeSubTest.expiresAt - now) / 1000));
@@ -128,6 +154,15 @@ export default function App() {
     setTarget({ ptnId: selectedPtn, prodiId: selectedProdi });
   };
 
+  useEffect(() => {
+    if (!isQuizView || !session || session.questions.length === 0) return;
+    if (session.currentIdx >= 0 && session.currentIdx < session.questions.length) return;
+    setSession((prev) => {
+      if (!prev || prev.questions.length === 0) return prev;
+      return { ...prev, currentIdx: Math.min(Math.max(prev.currentIdx, 0), prev.questions.length - 1) };
+    });
+  }, [isQuizView, session, setSession]);
+
   if (isBootLoading) {
     return (
       <main className="mx-auto flex min-h-screen max-w-5xl items-center px-6 py-10">
@@ -176,6 +211,39 @@ export default function App() {
             <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
               {PREDICTIONS_2026.slice(0, 3).map((item) => <li key={item.id}>{item.title}</li>)}
             </ul>
+          </Card>
+          <Card>
+            <h2 className="font-bold">Progress Konsep</h2>
+            {Object.entries(progress.materialMastery ?? {}).length ? (
+              <ul className="space-y-1 text-sm text-slate-700">
+                {Object.entries(progress.materialMastery ?? {})
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, 6)
+                  .map(([concept, value]) => (
+                    <li key={concept} className="flex items-center justify-between">
+                      <span>{concept}</span>
+                      <strong>{value}%</strong>
+                    </li>
+                  ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-slate-600">Belum ada data mastery. Jalankan sesi terlebih dahulu.</p>
+            )}
+          </Card>
+          <Card>
+            <h2 className="font-bold">Prioritas Revisi</h2>
+            {revisionPriorityQueue.length ? (
+              <ul className="space-y-1 text-sm text-slate-700">
+                {revisionPriorityQueue.slice(0, 5).map((item) => (
+                  <li key={item.questionId} className="flex items-center justify-between gap-2">
+                    <span>{item.questionId}</span>
+                    <span>{Math.round(item.wrongRate * 100)}% salah ({item.attempts}x)</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-slate-600">Belum ada antrian revisi.</p>
+            )}
           </Card>
         </div>
       )}
@@ -244,9 +312,17 @@ export default function App() {
             <>
               <QuestionRenderer question={currentQuestion} answer={session.answers[currentQuestion.id] ?? null} onAnswer={answerQuestion} submitted={session.isSubmitted} />
               <div className="flex items-center justify-between gap-2">
+                <span className="text-sm text-slate-600">Soal: {currentQuestion.id}</span>
+                <Button variant="secondary" onClick={toggleMark}>
+                  {session.marked[currentQuestion.id] ? 'Unmark' : 'Mark for review'}
+                </Button>
+              </div>
+              <div className="flex items-center justify-between gap-2">
                 <Button variant="secondary" onClick={() => handleQuestionMove('prev')} disabled={session.currentIdx === 0}><ChevronLeft size={16} /> Sebelumnya</Button>
                 {session.currentIdx === session.questions.length - 1 ? (
                   <Button variant="success" onClick={finishQuiz}><CheckCircle2 size={16} /> Submit</Button>
+                ) : isAtSubTestEnd && hasNextSubTest ? (
+                  <Button onClick={nextSubTest}>Next Section <ChevronRight size={16} /></Button>
                 ) : (
                   <Button onClick={() => handleQuestionMove('next')}>Berikutnya <ChevronRight size={16} /></Button>
                 )}
@@ -263,6 +339,15 @@ export default function App() {
           <Button variant="secondary" onClick={() => { setSession(null); setView('dashboard'); }}>Akhiri sesi</Button>
         </section>
       )}
+
+      {lastDrillResult ? (
+        <Card className="space-y-2">
+          <h2 className="font-bold text-slate-900">Hasil Drill Terakhir</h2>
+          <p className="text-sm text-slate-700">
+            {lastDrillResult.concept}: {lastDrillResult.baselineAccuracy}% → {lastDrillResult.postAccuracy}% (Δ {lastDrillResult.delta}%)
+          </p>
+        </Card>
+      ) : null}
     </main>
   );
 }
