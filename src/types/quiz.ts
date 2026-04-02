@@ -52,13 +52,31 @@ export interface UserProgress {
   currentDifficulty: Difficulty;
   reports: AssessmentReport[];
   materialMastery: { [concept: string]: number }; // 0-100 per concept
+  subTestHistory: { [subTestName: string]: SubTestHistoryEntry[] };
 }
+
+export interface SubTestHistoryEntry {
+  date: string;
+  score: number; // IRT score (0-1000)
+  sessionId: string;
+}
+
+export type ReadinessLevel = 'Aman' | 'Waspada' | 'Kritis';
 
 export interface AssessmentReport {
   id: string;
   date: string;
   totalScore: number; // IRT Score (0-1000)
   categoryScores: { [key in Category]: number };
+  readinessScore: number; // trend-aware readiness (0-1000)
+  readinessBySubTest: {
+    subTest: string;
+    score: number;
+    trend: number;
+    stability: number;
+    readiness: ReadinessLevel;
+    sampleSize: number;
+  }[];
   nationalRank: number;
   totalParticipants: number;
   percentile: number;
