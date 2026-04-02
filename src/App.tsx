@@ -293,6 +293,7 @@ export default function App() {
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [showSubTestConfirm, setShowSubTestConfirm] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
+  const iconOnlyFocusClass = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white";
 
   const getModeName = (mode: string) => {
     switch(mode) {
@@ -787,7 +788,8 @@ export default function App() {
           <div className="flex items-center gap-6">
             <button 
               onClick={() => setView('dashboard')} 
-              className="p-3 hover:bg-slate-50 border border-slate-200 rounded-2xl text-slate-600 transition-all shadow-sm hover:shadow-md"
+              aria-label="Kembali ke Dashboard"
+              className={cn("p-3 hover:bg-slate-50 border border-slate-200 rounded-2xl text-slate-600 transition-all shadow-sm hover:shadow-md", iconOnlyFocusClass)}
             >
               <ChevronLeft size={24} />
             </button>
@@ -936,7 +938,11 @@ export default function App() {
       <div className="max-w-6xl mx-auto p-6 space-y-10 pb-32">
         <header className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <button onClick={() => setView('dashboard')} className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-600 hover:bg-slate-50 transition-colors shadow-sm">
+            <button
+              onClick={() => setView('dashboard')}
+              aria-label="Kembali ke Dashboard"
+              className={cn("p-3 bg-white border border-slate-200 rounded-2xl text-slate-600 hover:bg-slate-50 transition-colors shadow-sm", iconOnlyFocusClass)}
+            >
               <ChevronLeft size={24} />
             </button>
             <div>
@@ -1090,7 +1096,8 @@ export default function App() {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setView('dashboard')}
-                className="p-2 bg-white/10 hover:bg-white/20 rounded-2xl text-white transition-colors"
+                aria-label="Kembali ke Dashboard"
+                className={cn("p-2 bg-white/10 hover:bg-white/20 rounded-2xl text-white transition-colors", iconOnlyFocusClass)}
               >
                 <ChevronLeft size={20} />
               </button>
@@ -1338,13 +1345,28 @@ export default function App() {
           >
             <DashboardView />
             <nav className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-white/80 backdrop-blur-xl border border-slate-200 px-8 py-4 rounded-[32px] shadow-2xl shadow-indigo-100 flex gap-12 z-50">
-              <button onClick={() => setView('dashboard')} className={cn("p-3 rounded-2xl transition-all", "bg-indigo-600 text-white shadow-xl shadow-indigo-200")}>
+              <button
+                onClick={() => setView('dashboard')}
+                aria-label="Buka Dashboard"
+                aria-current={view === 'dashboard' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "bg-indigo-600 text-white shadow-xl shadow-indigo-200", iconOnlyFocusClass)}
+              >
                 <Home size={24} />
               </button>
-              <button onClick={() => setView('study')} className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600")}>
+              <button
+                onClick={() => setView('study')}
+                aria-label="Buka Belajar Mandiri"
+                aria-current={view === 'study' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600", iconOnlyFocusClass)}
+              >
                 <BookOpen size={24} />
               </button>
-              <button onClick={() => setView('analytics')} className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600")}>
+              <button
+                onClick={() => setView('analytics')}
+                aria-label="Buka Analisis Performa"
+                aria-current={view === 'analytics' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600", iconOnlyFocusClass)}
+              >
                 <BarChart3 size={24} />
               </button>
             </nav>
@@ -1373,13 +1395,28 @@ export default function App() {
           >
             <AnalyticsView />
             <nav className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-white/80 backdrop-blur-xl border border-slate-200 px-8 py-4 rounded-[32px] shadow-2xl shadow-indigo-100 flex gap-12 z-50">
-              <button onClick={() => setView('dashboard')} className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600")}>
+              <button
+                onClick={() => setView('dashboard')}
+                aria-label="Buka Dashboard"
+                aria-current={view === 'dashboard' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600", iconOnlyFocusClass)}
+              >
                 <Home size={24} />
               </button>
-              <button onClick={() => setView('study')} className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600")}>
+              <button
+                onClick={() => setView('study')}
+                aria-label="Buka Belajar Mandiri"
+                aria-current={view === 'study' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600", iconOnlyFocusClass)}
+              >
                 <BookOpen size={24} />
               </button>
-              <button onClick={() => setView('analytics')} className={cn("p-3 rounded-2xl transition-all", "bg-indigo-600 text-white shadow-xl shadow-indigo-200")}>
+              <button
+                onClick={() => setView('analytics')}
+                aria-label="Buka Analisis Performa"
+                aria-current={view === 'analytics' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "bg-indigo-600 text-white shadow-xl shadow-indigo-200", iconOnlyFocusClass)}
+              >
                 <BarChart3 size={24} />
               </button>
             </nav>
@@ -1408,13 +1445,28 @@ export default function App() {
           >
             <StudyView />
             <nav className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-white/80 backdrop-blur-xl border border-slate-200 px-8 py-4 rounded-[32px] shadow-2xl shadow-indigo-100 flex gap-12 z-50">
-              <button onClick={() => setView('dashboard')} className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600")}>
+              <button
+                onClick={() => setView('dashboard')}
+                aria-label="Buka Dashboard"
+                aria-current={view === 'dashboard' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600", iconOnlyFocusClass)}
+              >
                 <Home size={24} />
               </button>
-              <button onClick={() => setView('study')} className={cn("p-3 rounded-2xl transition-all", "bg-indigo-600 text-white shadow-xl shadow-indigo-200")}>
+              <button
+                onClick={() => setView('study')}
+                aria-label="Buka Belajar Mandiri"
+                aria-current={view === 'study' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "bg-indigo-600 text-white shadow-xl shadow-indigo-200", iconOnlyFocusClass)}
+              >
                 <BookOpen size={24} />
               </button>
-              <button onClick={() => setView('analytics')} className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600")}>
+              <button
+                onClick={() => setView('analytics')}
+                aria-label="Buka Analisis Performa"
+                aria-current={view === 'analytics' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600", iconOnlyFocusClass)}
+              >
                 <BarChart3 size={24} />
               </button>
             </nav>
