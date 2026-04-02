@@ -6,7 +6,6 @@ import { initAnalytics } from './lib/analytics';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { logEvent } from './lib/logger';
 import { recordSessionHealth } from './lib/slo';
-import { validateAllDataSchemas } from './data/validators';
 
 initAnalytics();
 recordSessionHealth(false);

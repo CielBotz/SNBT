@@ -62,10 +62,7 @@ const ShortAnswerRenderer = ({ question, answer, onAnswer, submitted }: Renderer
       className="w-full rounded-lg border border-slate-300 p-3"
       value={typeof answer === 'number' ? answer : ''}
       disabled={submitted}
-      onChange={(e) => {
-      const rawValue = e.target.value.trim();
-      onAnswer(rawValue === '' ? null : Number(rawValue));
-    }}
+      onChange={(e) => onAnswer(Number(e.target.value))}
       placeholder="Masukkan jawaban"
     />
   </div>
