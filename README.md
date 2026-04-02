@@ -2,19 +2,33 @@
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# Run and deploy your AI Studio app
+# SNBT Practice App
 
-This contains everything you need to run your app locally.
+Aplikasi latihan SNBT berbasis **React + Vite** dengan mode quiz, analytics/report, dan penyimpanan progress lokal.
 
-View your app in AI Studio: https://ai.studio/apps/f06ad6d9-8730-4c50-8173-15da6ae8e787
+## Development
 
-## Run Locally
+**Prerequisites:** Node.js 20+
 
-**Prerequisites:**  Node.js
+1. Install dependencies
+   ```bash
+   npm install
+   ```
+2. Copy contoh environment
+   ```bash
+   cp .env.example .env.local
+   ```
+3. Jalankan local dev server
+   ```bash
+   npm run dev
+   ```
 
+## Build Production
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+```bash
+npm run build
+```
+
+## Deploy sebagai website resmi
+
+Panduan publish ke Vercel + custom domain + HTTPS + smoke test tersedia di: **[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)**.

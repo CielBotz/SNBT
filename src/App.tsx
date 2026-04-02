@@ -29,6 +29,7 @@ import { formatTime, cn } from './lib/utils';
 import { Difficulty, Category, Question, AssessmentReport, StudyMaterial, QuizSession } from './types/quiz';
 import { STUDY_MATERIALS } from './data/materials';
 import ReactMarkdown from 'react-markdown';
+import { trackPageView } from './lib/analytics';
 import { 
   BarChart, 
   Bar, 
@@ -287,6 +288,10 @@ export default function App() {
   } = useQuiz();
 
   const [view, setView] = useState<'dashboard' | 'quiz' | 'analytics' | 'report' | 'study'>('dashboard');
+
+  useEffect(() => {
+    trackPageView(`/${view}`);
+  }, [view]);
   const [selectedReport, setSelectedReport] = useState<AssessmentReport | null>(null);
   const [selectedMaterial, setSelectedMaterial] = useState<StudyMaterial | null>(null);
 
