@@ -27,7 +27,7 @@ import {
 import { useQuiz } from './hooks/useQuiz';
 import { formatTime, cn } from './lib/utils';
 import { Difficulty, Category, Question, AssessmentReport, StudyMaterial, QuizSession } from './types/quiz';
-import { STUDY_MATERIALS } from './data/materials';
+import { STUDY_MATERIALS, findMaterialByConcept } from './data/materials';
 import ReactMarkdown from 'react-markdown';
 import { 
   BarChart, 
@@ -283,12 +283,14 @@ export default function App() {
     submitQuiz,
     nextSubTest,
     toggleMark,
-    setSession
+    setSession,
+    markMaterialRead
   } = useQuiz();
 
   const [view, setView] = useState<'dashboard' | 'quiz' | 'analytics' | 'report' | 'study'>('dashboard');
   const [selectedReport, setSelectedReport] = useState<AssessmentReport | null>(null);
   const [selectedMaterial, setSelectedMaterial] = useState<StudyMaterial | null>(null);
+  const [activeRemedialCycleId, setActiveRemedialCycleId] = useState<string | null>(null);
 
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [showSubTestConfirm, setShowSubTestConfirm] = useState(false);
@@ -314,14 +316,49 @@ export default function App() {
     setView('report');
   };
 
+  const startRemedialBaseline = (concept: any) => {
+    startSession('mini', undefined, { concept, remedialPhase: 'baseline' });
+    setView('quiz');
+  };
+
+  const continueToMaterial = (concept: any, cycleId: string) => {
+    const material = findMaterialByConcept(concept);
+    if (!material) return;
+    setActiveRemedialCycleId(cycleId);
+    setSelectedMaterial(material);
+    setView('study');
+  };
+
   const currentQuestion = session?.questions[session.currentIdx];
   const isLastQuestion = session && session.currentIdx === session.questions.length - 1;
   const currentSubTest = session?.subTests && session.currentSubTestIdx !== undefined ? session.subTests[session.currentSubTestIdx] : null;
 
   // --- Views ---
 
-  const DashboardView = () => (
+  const DashboardView = () => {
+    const ongoingCycles = progress.remedialCycles.filter(c => c.status !== 'completed');
+    const weeklyConceptDelta = progress.remedialCycles.reduce<Record<string, { concept: string; week: string; delta: number }>>((acc, cycle) => {
+      if (cycle.baselineScore === undefined || cycle.afterScore === undefined || !cycle.completedAt) return acc;
+      const weekKey = `${new Date(cycle.completedAt).getFullYear()}-W${Math.ceil(new Date(cycle.completedAt).getDate() / 7)}`;
+      const key = `${cycle.concept}-${weekKey}`;
+      if (!acc[key]) acc[key] = { concept: cycle.concept, week: weekKey, delta: 0 };
+      acc[key].delta += cycle.afterScore - cycle.baselineScore;
+      return acc;
+    }, {});
+
+    return (
     <div className="max-w-6xl mx-auto p-6 space-y-10 pb-32">
+      {ongoingCycles.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-3xl p-6 flex items-center justify-between gap-6">
+          <div>
+            <p className="text-xs font-black uppercase tracking-widest text-amber-700">Notifikasi Remedial</p>
+            <p className="text-slate-800 font-bold">Ada {ongoingCycles.length} siklus remedial belum tuntas. Lanjutkan dari dashboard report atau materi.</p>
+          </div>
+          <button onClick={() => setView('report')} className="px-4 py-2 rounded-xl bg-amber-500 text-white font-black text-xs uppercase tracking-widest">
+            Lanjut Remedial
+          </button>
+        </div>
+      )}
       {/* Hero Section - Bento Style */}
       <div className="grid md:grid-cols-3 gap-6">
         <div className="md:col-span-2 bg-slate-900 rounded-[48px] p-12 text-white relative overflow-hidden shadow-2xl shadow-slate-200">
@@ -472,8 +509,33 @@ export default function App() {
           ))}
         </div>
       </section>
+
+      <section className="space-y-6">
+        <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3">
+          <div className="bg-emerald-600 w-2 h-8 rounded-full" />
+          Improvement Delta per Konsep (Mingguan)
+        </h2>
+        <div className="grid md:grid-cols-2 gap-4">
+          {Object.values(weeklyConceptDelta).length > 0 ? Object.values(weeklyConceptDelta).map((item) => (
+            <div key={`${item.concept}-${item.week}`} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-xs text-slate-400 font-black uppercase tracking-widest">{item.week}</p>
+                <p className="font-black text-slate-900">{item.concept}</p>
+              </div>
+              <p className={cn("text-xl font-black", item.delta >= 0 ? "text-emerald-600" : "text-rose-600")}>
+                {item.delta >= 0 ? '+' : ''}{item.delta}
+              </p>
+            </div>
+          )) : (
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 text-slate-500 font-medium">
+              Belum ada data delta mingguan. Selesaikan siklus remedial (baseline → materi → mini-quiz ulang).
+            </div>
+          )}
+        </div>
+      </section>
     </div>
   );
+  };
 
   const QuizView = () => {
     if (!session || !currentQuestion) return null;
@@ -621,7 +683,10 @@ export default function App() {
                   </button>
                   <button 
                     onClick={() => {
-                      submitQuiz();
+                      const report = submitQuiz();
+                      if (report) {
+                        setSelectedReport(report);
+                      }
                       setShowSubmitConfirm(false);
                       setView('report');
                       window.scrollTo(0, 0);
@@ -846,6 +911,33 @@ export default function App() {
                   <p className="text-xs text-slate-500 font-medium">Analisis komparatif skor PTN 2025</p>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-[40px] p-8 border border-slate-200 shadow-sm space-y-6">
+            <h3 className="text-2xl font-black text-slate-900">3 Konsep Prioritas Lemah</h3>
+            <div className="grid md:grid-cols-3 gap-4">
+              {selectedReport.prioritizedWeakConcepts?.map((weak) => {
+                const existingCycle = progress.remedialCycles.find((c) => c.concept === weak.concept && c.status !== 'completed');
+                return (
+                  <div key={weak.concept} className="p-5 rounded-2xl bg-rose-50 border border-rose-100 space-y-4">
+                    <div>
+                      <p className="text-xs text-rose-500 font-black uppercase tracking-widest">Mastery</p>
+                      <p className="text-2xl font-black text-rose-700">{weak.score}%</p>
+                    </div>
+                    <p className="font-black text-slate-900">{weak.concept}</p>
+                    {!existingCycle ? (
+                      <button onClick={() => startRemedialBaseline(weak.concept)} className="w-full py-2.5 rounded-xl bg-indigo-600 text-white font-black text-xs uppercase tracking-widest">
+                        Mulai Baseline Quiz
+                      </button>
+                    ) : (
+                      <button onClick={() => continueToMaterial(weak.concept, existingCycle.id)} className="w-full py-2.5 rounded-xl bg-emerald-600 text-white font-black text-xs uppercase tracking-widest">
+                        Baca Materi & Quiz Ulang
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -1315,6 +1407,25 @@ export default function App() {
                       ))}
                     </div>
                   </div>
+
+                  {activeRemedialCycleId && (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-[28px] p-6 space-y-4">
+                      <p className="text-xs font-black uppercase tracking-widest text-emerald-700">Langkah Berikutnya</p>
+                      <p className="text-slate-800 font-bold">Setelah membaca materi, lanjutkan mini-quiz khusus konsep ini untuk mengukur score-after.</p>
+                      <button
+                        onClick={() => {
+                          markMaterialRead(activeRemedialCycleId);
+                          startSession('mini', undefined, { concept: selectedMaterial.concept, remedialPhase: 'after', cycleId: activeRemedialCycleId });
+                          setSelectedMaterial(null);
+                          setActiveRemedialCycleId(null);
+                          setView('quiz');
+                        }}
+                        className="px-6 py-3 rounded-2xl bg-emerald-600 text-white font-black text-xs uppercase tracking-widest"
+                      >
+                        Mulai Mini-Quiz Konsep Ini
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
