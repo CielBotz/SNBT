@@ -30,6 +30,8 @@ const INITIAL_PROGRESS: UserProgress = {
   completedIds: [],
   wrongIds: [],
   streak: 0,
+  qualityStreak: 0,
+  qualityDays: {},
   dailyProgress: {},
   categoryStats: {
     'TPS': { correct: 0, total: 0 },
@@ -40,6 +42,7 @@ const INITIAL_PROGRESS: UserProgress = {
   currentDifficulty: 'easy',
   reports: [],
   materialMastery: {},
+  conceptLastSeen: {},
   conceptHistory: {},
   conceptReviewState: {},
   strategyOutcomes: {},
@@ -369,6 +372,12 @@ export function useQuiz() {
     const saved = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(STORAGE_KEY_LEGACY);
     if (saved) {
       const parsed = JSON.parse(saved);
+      return { 
+        ...INITIAL_PROGRESS, 
+        ...parsed, 
+        materialMastery: parsed.materialMastery ?? {},
+        qualityDays: parsed.qualityDays ?? {},
+        conceptLastSeen: parsed.conceptLastSeen ?? {},
       return migrateProgress(parsed);
       return {
         ...INITIAL_PROGRESS,
@@ -932,6 +941,8 @@ export function useQuiz() {
       id: `report-${Date.now()}`,
       date: new Date().toISOString(),
       totalScore: irtScore,
+      questionCount: session.questions.length,
+      correctCount,
       categoryScores: categoryScores as any,
       nationalRank: rank,
       totalParticipants,
@@ -1079,6 +1090,21 @@ export function useQuiz() {
 
       let newDifficulty: Difficulty = prev.currentDifficulty;
       const accuracy = correctCount / (session.questions.length || 1);
+      const isMeaningfulSession = session.questions.length >= 5 && accuracy >= 0.6;
+      const updatedQualityDays = { ...prev.qualityDays };
+      if (isMeaningfulSession) updatedQualityDays[today] = true;
+
+      const countedDays = Object.keys(updatedQualityDays).sort();
+      let qualityStreak = 0;
+      if (countedDays.length > 0 && countedDays[countedDays.length - 1] === today) {
+        let cursor = new Date(`${today}T00:00:00.000Z`);
+        while (true) {
+          const key = cursor.toISOString().split('T')[0];
+          if (!updatedQualityDays[key]) break;
+          qualityStreak += 1;
+          cursor.setUTCDate(cursor.getUTCDate() - 1);
+        }
+      }
       const isHighGroup = accuracy >= 0.7;
       const isLowGroup = accuracy <= 0.4;
       if (accuracy > 0.8) {
@@ -1187,6 +1213,8 @@ export function useQuiz() {
         completedIds: newCompletedIds,
         wrongIds: newWrongIds,
         streak: correctCount === session.questions.length ? prev.streak + 1 : 0,
+        qualityStreak,
+        qualityDays: updatedQualityDays,
         dailyProgress: {
           ...prev.dailyProgress,
           [today]: (prev.dailyProgress[today] || 0) + correctCount,
@@ -1196,6 +1224,10 @@ export function useQuiz() {
         materialMastery: aggregateMastery,
         reports: [mergedReport, ...prev.reports].slice(0, 10),
         materialMastery: { ...(prev.materialMastery ?? {}), ...materialMastery },
+        conceptLastSeen: {
+          ...(prev.conceptLastSeen ?? {}),
+          ...Object.fromEntries(results.map(r => [r.concept, new Date().toISOString()])),
+        },
         itemPerformance: updatedItemPerformance,
         conceptMetrics,
         questionHistory: updatedQuestionHistory,
