@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { QUESTIONS } from '../data/questions';
-import type { AssessmentReport, Category, Concept, QuizSession, TargetedDrillResult, UserProgress, UserTarget } from '../types/quiz';
+import type {
+  AssessmentReport,
+  Category,
+  Concept,
+  QuestionAnswer,
+  QuizSession,
+  TargetedDrillResult,
+  UserProgress,
+  UserTarget,
+} from '../types/quiz';
 import { calculateSessionReport } from './quiz/analyticsScoring';
 import { loadProgressFromStorage, STORAGE_KEY } from './quiz/progressMigration';
 import { pickQuestionsByMode } from './quiz/questionSelection';
@@ -56,7 +65,7 @@ export function useQuiz() {
     [progress],
   );
 
-  const answerQuestion = useCallback((answer: unknown) => {
+  const answerQuestion = useCallback((answer: QuestionAnswer) => {
     setSession((prev) => {
       if (!prev || prev.isSubmitted) return prev;
       const qid = prev.questions[prev.currentIdx]?.id;

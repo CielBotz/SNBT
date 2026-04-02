@@ -1,4 +1,4 @@
-import type { AssessmentReport, Category, Question, QuizSession, UserProgress } from '../../types/quiz';
+import type { AssessmentReport, Category, Question, QuestionAnswer, QuizSession, UserProgress } from '../../types/quiz';
 
 const CATEGORIES: Category[] = ['TPS', 'Literasi Indonesia', 'Literasi Inggris', 'Penalaran Matematika'];
 
@@ -210,7 +210,7 @@ export const calculateSessionReport = (session: QuizSession, progress: UserProgr
   } as AssessmentReport;
 };
 
-const isAnswerCorrect = (question: Question, answer: unknown): boolean => {
+const isAnswerCorrect = (question: Question, answer: QuestionAnswer): boolean => {
   if (answer === undefined || answer === null) return false;
 
   if (question.type === 'multiple_choice') {
