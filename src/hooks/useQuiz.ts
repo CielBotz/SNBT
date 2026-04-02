@@ -153,7 +153,11 @@ export function useQuiz() {
         const nextQuestionIdx = nextSubTest?.questionIndices?.[0];
 
         if (typeof nextQuestionIdx !== 'number') {
-          return prev;
+          if (prev.currentIdx >= prev.questions.length - 1) {
+            return { ...prev, isSubmitted: true };
+          }
+
+          return { ...prev, currentIdx: clamp(prev.currentIdx + 1, 0, prev.questions.length - 1), questionStartedAt: now };
         }
 
         return {
