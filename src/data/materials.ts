@@ -1466,3 +1466,6 @@ Teks akademik disajikan bersama **grafik, tabel, atau diagram** → soal menggab
     ]
   }
 ];
+
+export const findMaterialByConcept = (concept: string): StudyMaterial | undefined =>
+  STUDY_MATERIALS.find((m) => m.concept === concept);

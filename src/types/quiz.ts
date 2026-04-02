@@ -52,6 +52,7 @@ export interface UserProgress {
   currentDifficulty: Difficulty;
   reports: AssessmentReport[];
   materialMastery: { [concept: string]: number }; // 0-100 per concept
+  remedialCycles: RemedialCycle[];
 }
 
 export interface AssessmentReport {
@@ -68,6 +69,18 @@ export interface AssessmentReport {
     prodi: string;
     chance: number; // 0-100
   }[];
+  prioritizedWeakConcepts: { concept: Concept; score: number }[];
+}
+
+export interface RemedialCycle {
+  id: string;
+  concept: Concept;
+  startedAt: string;
+  materialReadAt?: string;
+  completedAt?: string;
+  baselineScore?: number;
+  afterScore?: number;
+  status: 'started' | 'material_pending' | 'needs_continue' | 'completed';
 }
 
 export interface PTN {
@@ -103,4 +116,9 @@ export interface QuizSession {
     expiresAt: number; // absolute timestamp (ms) when this sub-test timer expires; 0 = not yet started
   }[];
   currentSubTestIdx?: number;
+  remedial?: {
+    cycleId: string;
+    concept: Concept;
+    phase: 'baseline' | 'after';
+  };
 }
