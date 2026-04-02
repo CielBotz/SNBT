@@ -26,6 +26,8 @@ import {
 } from 'lucide-react';
 import { useQuiz } from './hooks/useQuiz';
 import { formatTime, cn } from './lib/utils';
+import { Difficulty, Category, Question, AssessmentReport, StudyMaterial, QuizSession, ConceptEvaluation } from './types/quiz';
+import { STUDY_MATERIALS } from './data/materials';
 import { Difficulty, Category, Question, AssessmentReport, StudyMaterial, QuizSession } from './types/quiz';
 import { STUDY_MATERIALS, findMaterialByConcept } from './data/materials';
 import ReactMarkdown from 'react-markdown';
@@ -456,6 +458,33 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {progress.reports[0]?.conceptEvaluations && progress.reports[0].conceptEvaluations.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-[32px] p-8 shadow-sm space-y-6">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xl font-black text-slate-900">Status Konsep Terkini</h3>
+            <span className="text-[10px] uppercase tracking-widest font-black text-slate-400">Berdasar confidence band</span>
+          </div>
+          <div className="grid md:grid-cols-3 gap-4">
+            {progress.reports[0].conceptEvaluations.slice(0, 6).map((item, idx) => (
+              <div key={`${item.concept}-${idx}`} className="p-4 rounded-2xl border border-slate-200 bg-slate-50">
+                <p className="text-xs font-bold text-slate-500 mb-2">{item.concept}</p>
+                <p className={cn(
+                  "text-sm font-black",
+                  item.status === 'Strong' ? "text-emerald-600" :
+                  item.status === 'Watchlist' ? "text-amber-600" :
+                  item.status === 'Critical' ? "text-rose-600" : "text-slate-500"
+                )}>
+                  {item.status}
+                </p>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Acc {Math.round(item.rollingAccuracy * 100)}% • N={item.sampleSize}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Quick Stats & Actions */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
@@ -955,6 +984,7 @@ export default function App() {
 
   const ReportView = () => {
     if (!selectedReport) return null;
+    const conceptEvaluations: ConceptEvaluation[] = selectedReport.conceptEvaluations ?? [];
 
     const masteryData = Object.entries(selectedReport.materialMastery).map(([name, value]) => ({
       subject: name,
@@ -1137,6 +1167,34 @@ export default function App() {
             </div>
           </div>
 
+          <div className="bg-white rounded-[56px] p-10 border border-slate-200 shadow-sm space-y-6">
+            <h3 className="text-2xl font-black text-slate-900">Status Stabilitas Konsep</h3>
+            {conceptEvaluations.length === 0 ? (
+              <p className="text-slate-500 text-sm">Belum ada data longitudinal yang cukup untuk evaluasi konsep.</p>
+            ) : (
+              <div className="grid md:grid-cols-2 gap-4">
+                {conceptEvaluations.map((item, idx) => (
+                  <div key={`${item.concept}-${idx}`} className="p-5 rounded-3xl border border-slate-200 bg-slate-50">
+                    <div className="flex items-center justify-between">
+                      <p className="font-black text-slate-900">{item.concept}</p>
+                      <span className={cn(
+                        "text-xs px-3 py-1 rounded-full font-black uppercase tracking-wider",
+                        item.status === 'Strong' ? "bg-emerald-100 text-emerald-700" :
+                        item.status === 'Watchlist' ? "bg-amber-100 text-amber-700" :
+                        item.status === 'Critical' ? "bg-rose-100 text-rose-700" : "bg-slate-200 text-slate-600"
+                      )}>
+                        {item.status}
+                      </span>
+                    </div>
+                    <div className="mt-3 text-xs text-slate-600 space-y-1">
+                      <p>Rolling Accuracy: <span className="font-black">{Math.round(item.rollingAccuracy * 100)}%</span></p>
+                      <p>Confidence: <span className="font-black">{Math.round(item.confidenceBand.low * 100)}% - {Math.round(item.confidenceBand.high * 100)}%</span></p>
+                      <p>Recent Trend: <span className="font-black">{item.recentTrend >= 0 ? '+' : ''}{item.recentTrend.toFixed(2)}</span></p>
+                      <p>Sample Size: <span className="font-black">{item.sampleSize}</span></p>
+                    </div>
+                  </div>
+                ))}
+              </div>
           <div className="bg-white rounded-[56px] p-10 border border-slate-200 shadow-sm space-y-8">
             <div className="flex items-center gap-4">
               <div className="bg-amber-50 p-3 rounded-2xl">

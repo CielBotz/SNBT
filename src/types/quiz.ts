@@ -113,6 +113,7 @@ export interface ConceptProfile {
 }
 
 export interface UserProgress {
+  storageVersion: number;
   completedIds: string[];
   wrongIds: string[];
   streak: number;
@@ -122,6 +123,38 @@ export interface UserProgress {
   reports: AssessmentReport[];
   materialMastery: { [concept: string]: { correct: number; total: number } };
   materialMastery: { [concept: string]: number }; // 0-100 per concept
+  conceptMetrics: { [key in Concept]?: ConceptLongitudinalMetrics };
+}
+
+export interface ConceptLongitudinalMetrics {
+  totalAttempts: number;
+  totalCorrect: number;
+  rollingAccuracy: number; // 0-1 EWMA
+  recentTrend: number; // -1 to 1 (positive = improving)
+  confidenceBand: {
+    low: number; // 0-1
+    high: number; // 0-1
+  };
+  history: Array<{
+    date: string;
+    accuracy: number; // 0-1
+    sampleSize: number;
+  }>;
+  lastUpdated: string;
+}
+
+export type ConceptStatus = 'Strong' | 'Watchlist' | 'Critical' | 'Insufficient Data';
+
+export interface ConceptEvaluation {
+  concept: Concept;
+  status: ConceptStatus;
+  rollingAccuracy: number;
+  sampleSize: number;
+  recentTrend: number;
+  confidenceBand: {
+    low: number;
+    high: number;
+  };
   questionHistory: { [questionId: string]: QuestionHistoryItem };
   conceptProfiles: { [concept: string]: ConceptProfile };
   remedialCycles: RemedialCycle[];
@@ -142,6 +175,7 @@ export interface AssessmentReport {
   totalParticipants: number;
   percentile: number;
   materialMastery: { [key in Concept]: number }; // 0-100
+  conceptEvaluations: ConceptEvaluation[];
   recommendations: {
     ptn: string;
     prodi: string;
