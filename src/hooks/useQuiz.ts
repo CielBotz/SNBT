@@ -159,10 +159,15 @@ export function useQuiz() {
         const answer = session.answers[q.id];
         const isCorrect =
           q.type === 'multiple_choice'
-            ? answer === q.correctAnswer
+            ? typeof answer === 'number' && answer === q.correctAnswer
             : q.type === 'short_answer'
-              ? Number(answer) === Number(q.shortAnswerCorrect)
-              : false;
+              ? typeof answer === 'number' && Number(answer) === Number(q.shortAnswerCorrect)
+              : q.type === 'complex_multiple_choice'
+                ? Array.isArray(answer) &&
+                  Array.isArray(q.complexOptions) &&
+                  q.complexOptions.length > 0 &&
+                  q.complexOptions.every((option, index) => answer[index] === option.correct)
+                : false;
         return { questionId: q.id, isCorrect };
       });
       const wrongIds = perQuestionResult.filter((item) => !item.isCorrect).map((item) => item.questionId);
@@ -233,7 +238,7 @@ export function useQuiz() {
           }
 
           const baselineScore = cycle.baselineScore ?? conceptScore;
-          const status = (conceptScore >= baselineScore ? 'completed' : 'needs_continue') as const;
+          const status: 'completed' | 'needs_continue' = conceptScore >= baselineScore ? 'completed' : 'needs_continue';
           return {
             ...cycle,
             afterScore: conceptScore,

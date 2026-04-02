@@ -2,59 +2,18 @@ import { useEffect, useMemo, useState } from 'react';
 import { BookOpen, CheckCircle2, ChevronLeft, ChevronRight, Home, Target } from 'lucide-react';
 import { useQuiz } from './hooks/useQuiz';
 import { QUESTIONS } from './data/questions';
-import type { Question, QuestionAnswer } from './types/quiz';
+import { QuestionRenderer } from './components/quiz/QuestionRenderer';
+import type { Concept, QuizSession } from './types/quiz';
 
-function QuestionCard({
-  question,
-  answer,
-  onAnswer,
-  submitted,
-}: {
-  question: Question;
-  answer: QuestionAnswer;
-  onAnswer: (value: QuestionAnswer) => void;
-  submitted: boolean;
-}) {
-  if (question.type === 'short_answer') {
-    return (
-      <div className="space-y-3">
-        <p className="font-semibold text-slate-700">{question.question}</p>
-        <input
-          type="number"
-          className="w-full rounded-lg border border-slate-300 p-3"
-          value={typeof answer === 'number' ? answer : ''}
-          disabled={submitted}
-          onChange={(e) => onAnswer(Number(e.target.value))}
-          placeholder="Masukkan jawaban"
-        />
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      <p className="font-semibold text-slate-700">{question.question}</p>
-      <div className="space-y-2">
-        {question.options?.map((option, idx) => {
-          const selected = answer === idx;
-          return (
-            <button
-              key={`${question.id}-${idx}`}
-              type="button"
-              disabled={submitted}
-              onClick={() => onAnswer(idx)}
-              className={`w-full rounded-lg border p-3 text-left transition ${
-                selected ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 hover:border-slate-300'
-              }`}
-            >
-              {String.fromCharCode(65 + idx)}. {option}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+const SESSION_MODES: { mode: QuizSession['mode']; label: string }[] = [
+  { mode: 'mini', label: 'Mini Quiz' },
+  { mode: 'daily', label: 'Daily 5' },
+  { mode: 'drill15', label: 'Drill 15' },
+  { mode: 'tryout', label: 'Tryout' },
+  { mode: 'simulation', label: 'Simulation' },
+  { mode: 'category', label: 'Category Focus' },
+  { mode: 'targeted', label: 'Targeted Concept' },
+];
 
 export default function App() {
   const {
@@ -77,8 +36,26 @@ export default function App() {
     return session.questions[session.currentIdx] ?? null;
   }, [session]);
 
-  const startQuickQuiz = () => {
-    startSession('mini');
+  const firstCategory = useMemo(() => QUESTIONS[0]?.category, []);
+  const availableConcepts = useMemo(
+    () => Array.from(new Set(QUESTIONS.map((question) => question.concept).filter(Boolean))) as Concept[],
+    [],
+  );
+  const weakestConcept = useMemo(() => {
+    if (availableConcepts.length === 0) return undefined;
+
+    const mastered = progress.materialMastery ?? {};
+    return [...availableConcepts].sort((a, b) => (mastered[a] ?? 0) - (mastered[b] ?? 0))[0];
+  }, [availableConcepts, progress.materialMastery]);
+
+  const startModeSession = (mode: QuizSession['mode']) => {
+    if (mode === 'category' && firstCategory) {
+      startSession(mode, firstCategory);
+    } else if (mode === 'targeted') {
+      startSession(mode, undefined, { concept: weakestConcept ?? availableConcepts[0] });
+    } else {
+      startSession(mode);
+    }
     setView('quiz');
   };
 
@@ -126,13 +103,18 @@ export default function App() {
         <p className="text-slate-600">
           Bank soal aktif: <span className="font-semibold">{QUESTIONS.length}</span> soal.
         </p>
-        <button
-          type="button"
-          onClick={startQuickQuiz}
-          className="inline-flex w-fit items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 font-semibold text-white hover:bg-indigo-700"
-        >
-          <Target size={18} /> Mulai Quiz Cepat
-        </button>
+        <div className="flex flex-wrap gap-3">
+          {SESSION_MODES.map((item) => (
+            <button
+              key={item.mode}
+              type="button"
+              onClick={() => startModeSession(item.mode)}
+              className="inline-flex w-fit items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 font-semibold text-white hover:bg-indigo-700"
+            >
+              <Target size={18} /> {item.label}
+            </button>
+          ))}
+        </div>
       </main>
     );
   }
@@ -162,7 +144,7 @@ export default function App() {
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-6 py-10">
       <header className="flex items-center justify-between">
         <h2 className="inline-flex items-center gap-2 text-xl font-bold text-slate-900">
-          <BookOpen size={20} /> Mode Quiz
+          <BookOpen size={20} /> Mode Quiz ({session?.mode ?? '-'})
         </h2>
         <div className="text-right">
           <span className="block text-sm text-slate-500">
@@ -178,7 +160,7 @@ export default function App() {
 
       {session && currentQuestion ? (
         <>
-          <QuestionCard
+          <QuestionRenderer
             question={currentQuestion}
             answer={session.answers[currentQuestion.id]}
             onAnswer={answerQuestion}
