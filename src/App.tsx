@@ -22,28 +22,25 @@ import {
   ArrowRight,
   Search,
   School,
-  Calendar
+  Calendar,
 } from 'lucide-react';
 import { useQuiz } from './hooks/useQuiz';
 import { formatTime, cn } from './lib/utils';
-import { Difficulty, Category, Question, AssessmentReport, StudyMaterial, QuizSession, Concept } from './types/quiz';
-import { STUDY_MATERIALS } from './data/materials';
-import { QUESTIONS } from './data/questions';
-import { Difficulty, Category, Question, AssessmentReport, StudyMaterial, QuizSession, ConceptEvaluation } from './types/quiz';
-import { STUDY_MATERIALS } from './data/materials';
-import { PTN_DATA } from './data/ptn';
-import { Difficulty, Category, Question, AssessmentReport, StudyMaterial, QuizSession } from './types/quiz';
+import {
+  Difficulty,
+  Category,
+  Question,
+  AssessmentReport,
+  StudyMaterial,
+  QuizSession,
+  Concept,
+  ConceptEvaluation,
+} from './types/quiz';
 import { STUDY_MATERIALS, findMaterialByConcept } from './data/materials';
+import { QUESTIONS } from './data/questions';
+import { PTN_DATA } from './data/ptn';
 import ReactMarkdown from 'react-markdown';
 import { trackPageView } from './lib/analytics';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer, 
 import {
   BarChart,
   Bar,
@@ -58,6 +55,7 @@ import {
   PolarGrid,
   PolarAngleAxis,
 } from 'recharts';
+
 
 const LazyImage = lazy(() => Promise.resolve({
   default: ({ src, alt, className }: { src: string; alt: string; className?: string }) => (
