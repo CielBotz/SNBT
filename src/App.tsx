@@ -28,6 +28,7 @@ import { useQuiz } from './hooks/useQuiz';
 import { formatTime, cn } from './lib/utils';
 import { Difficulty, Category, Question, AssessmentReport, StudyMaterial, QuizSession } from './types/quiz';
 import { STUDY_MATERIALS } from './data/materials';
+import { PTN_DATA } from './data/ptn';
 import ReactMarkdown from 'react-markdown';
 import { 
   BarChart, 
@@ -283,7 +284,8 @@ export default function App() {
     submitQuiz,
     nextSubTest,
     toggleMark,
-    setSession
+    setSession,
+    setTarget
   } = useQuiz();
 
   const [view, setView] = useState<'dashboard' | 'quiz' | 'analytics' | 'report' | 'study'>('dashboard');
@@ -293,6 +295,21 @@ export default function App() {
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [showSubTestConfirm, setShowSubTestConfirm] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
+
+  const [selectedPtnId, setSelectedPtnId] = useState(progress.target?.ptnId || '');
+  const [selectedProdiId, setSelectedProdiId] = useState(progress.target?.prodiId || '');
+
+  useEffect(() => {
+    if (progress.target) {
+      setSelectedPtnId(progress.target.ptnId);
+      setSelectedProdiId(progress.target.prodiId);
+    }
+  }, [progress.target?.ptnId, progress.target?.prodiId]);
+
+  const selectedPtn = PTN_DATA.find((ptn) => ptn.id === selectedPtnId);
+  const availableProdi = selectedPtn?.prodi ?? [];
+  const targetPtn = PTN_DATA.find((ptn) => ptn.id === progress.target?.ptnId);
+  const targetProdi = targetPtn?.prodi.find((prodi) => prodi.id === progress.target?.prodiId);
 
   const getModeName = (mode: string) => {
     switch(mode) {
@@ -388,6 +405,59 @@ export default function App() {
           </div>
         </div>
       </div>
+
+
+      <section className="bg-white rounded-[40px] p-8 border border-slate-200 shadow-sm space-y-6">
+        <div className="flex items-center gap-3">
+          <Target className="text-indigo-600" size={22} />
+          <h3 className="text-xl font-black text-slate-900">Target PTN & Jurusan</h3>
+        </div>
+        <p className="text-sm text-slate-500 font-medium">Set target untuk personalisasi readiness dashboard dan rekomendasi latihan otomatis.</p>
+        <div className="grid md:grid-cols-3 gap-4">
+          <select
+            value={selectedPtnId}
+            onChange={(e) => {
+              setSelectedPtnId(e.target.value);
+              setSelectedProdiId('');
+            }}
+            className="px-4 py-3 rounded-2xl border border-slate-200 font-semibold text-slate-700 bg-white"
+          >
+            <option value="">Pilih PTN</option>
+            {PTN_DATA.map((ptn) => (
+              <option key={ptn.id} value={ptn.id}>{ptn.name}</option>
+            ))}
+          </select>
+
+          <select
+            value={selectedProdiId}
+            onChange={(e) => setSelectedProdiId(e.target.value)}
+            disabled={!selectedPtnId}
+            className="px-4 py-3 rounded-2xl border border-slate-200 font-semibold text-slate-700 bg-white disabled:bg-slate-100"
+          >
+            <option value="">Pilih Jurusan</option>
+            {availableProdi.map((prodi) => (
+              <option key={prodi.id} value={prodi.id}>{prodi.name}</option>
+            ))}
+          </select>
+
+          <button
+            onClick={() => {
+              if (selectedPtnId && selectedProdiId) {
+                setTarget({ ptnId: selectedPtnId, prodiId: selectedProdiId });
+              }
+            }}
+            disabled={!selectedPtnId || !selectedProdiId}
+            className="px-6 py-3 rounded-2xl bg-indigo-600 text-white font-black uppercase tracking-widest text-xs disabled:opacity-40"
+          >
+            Simpan Target
+          </button>
+        </div>
+        {progress.target && targetPtn && targetProdi && (
+          <p className="text-xs text-indigo-700 font-bold">
+            Target aktif: {targetPtn.name} • {targetProdi.name} (Passing Grade {targetProdi.passingGrade})
+          </p>
+        )}
+      </section>
 
       {/* Quick Stats & Actions */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
@@ -775,7 +845,16 @@ export default function App() {
   const ReportView = () => {
     if (!selectedReport) return null;
 
-    const masteryData = Object.entries(selectedReport.materialMastery).map(([name, value]) => ({
+    const safeReport = {
+      ...selectedReport,
+      readinessIndex: selectedReport.readinessIndex ?? 0,
+      trendSessions: selectedReport.trendSessions ?? 0,
+      consistency: selectedReport.consistency ?? 0,
+      gapBySubTest: selectedReport.gapBySubTest ?? { 'TPS': 0, 'Literasi Indonesia': 0, 'Literasi Inggris': 0, 'Penalaran Matematika': 0 },
+      focusRecommendations: selectedReport.focusRecommendations ?? [],
+    };
+
+    const masteryData = Object.entries(safeReport.materialMastery).map(([name, value]) => ({
       subject: name,
       A: value,
       fullMark: 100,
@@ -799,7 +878,7 @@ export default function App() {
           <div className="flex items-center gap-3 px-5 py-2 bg-indigo-50 rounded-2xl border border-indigo-100">
             <Calendar size={18} className="text-indigo-600" />
             <span className="text-sm font-black text-indigo-900">
-              {new Date(selectedReport.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+              {new Date(safeReport.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
             </span>
           </div>
         </nav>
@@ -813,12 +892,12 @@ export default function App() {
                 <div className="absolute inset-0 bg-indigo-500 blur-[40px] opacity-20 group-hover:opacity-40 transition-opacity" />
                 <div className="w-64 h-64 rounded-full border-[16px] border-white/5 flex flex-col items-center justify-center relative bg-slate-900/50 backdrop-blur-xl">
                   <span className="text-[11px] font-black text-slate-400 uppercase tracking-[0.4em] mb-2">IRT Score</span>
-                  <span className="text-7xl font-black text-white tracking-tighter">{Math.round(selectedReport.totalScore)}</span>
+                  <span className="text-7xl font-black text-white tracking-tighter">{Math.round(safeReport.totalScore)}</span>
                   <div className="h-px w-24 bg-white/10 my-3" />
                   <span className="text-[11px] font-black text-indigo-400 uppercase tracking-[0.4em]">Target: 800+</span>
                 </div>
                 <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 bg-yellow-400 text-slate-900 px-8 py-3 rounded-3xl font-black text-sm shadow-2xl border-4 border-slate-900">
-                  Top {Math.round(selectedReport.percentile)}% Nasional
+                  Top {Math.round(safeReport.percentile)}% Nasional
                 </div>
               </div>
 
@@ -828,8 +907,8 @@ export default function App() {
                     <Trophy size={18} />
                     <p className="text-[10px] font-black uppercase tracking-[0.3em]">Peringkat Nasional</p>
                   </div>
-                  <p className="text-4xl font-black text-white">#{selectedReport.nationalRank.toLocaleString()}</p>
-                  <p className="text-xs text-slate-500 font-medium">Dari {selectedReport.totalParticipants.toLocaleString()} peserta aktif</p>
+                  <p className="text-4xl font-black text-white">#{safeReport.nationalRank.toLocaleString()}</p>
+                  <p className="text-xs text-slate-500 font-medium">Dari {safeReport.totalParticipants.toLocaleString()} peserta aktif</p>
                 </div>
 
                 <div className="space-y-3 p-8 bg-white/5 rounded-[40px] border border-white/10 backdrop-blur-sm">
@@ -839,13 +918,60 @@ export default function App() {
                   </div>
                   <p className={cn(
                     "text-4xl font-black",
-                    selectedReport.totalScore > 650 ? "text-emerald-400" : selectedReport.totalScore > 550 ? "text-amber-400" : "text-rose-400"
+                    safeReport.totalScore > 650 ? "text-emerald-400" : safeReport.totalScore > 550 ? "text-amber-400" : "text-rose-400"
                   )}>
-                    {selectedReport.totalScore > 650 ? 'Sangat Tinggi' : selectedReport.totalScore > 550 ? 'Tinggi' : 'Menengah'}
+                    {safeReport.totalScore > 650 ? 'Sangat Tinggi' : safeReport.totalScore > 550 ? 'Tinggi' : 'Menengah'}
                   </p>
                   <p className="text-xs text-slate-500 font-medium">Analisis komparatif skor PTN 2025</p>
                 </div>
               </div>
+            </div>
+          </div>
+
+
+          <div className="grid md:grid-cols-3 gap-6">
+            <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Readiness Index</p>
+              <p className="text-4xl font-black text-slate-900 mt-2">{safeReport.readinessIndex}%</p>
+              <p className="text-xs text-slate-500 mt-1">Berdasarkan tren {safeReport.trendSessions} sesi terakhir.</p>
+            </div>
+            <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Konsistensi</p>
+              <p className="text-4xl font-black text-slate-900 mt-2">{safeReport.consistency}%</p>
+              <p className="text-xs text-slate-500 mt-1">Semakin tinggi artinya performa makin stabil antarsesi.</p>
+            </div>
+            <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Target</p>
+              <p className="text-lg font-black text-slate-900 mt-2">{safeReport.target ? `${safeReport.target.ptn} - ${safeReport.target.prodi}` : 'Belum diset'}</p>
+              <p className="text-xs text-slate-500 mt-1">{safeReport.target ? `Passing grade ${safeReport.target.passingGrade}` : 'Atur target di dashboard untuk analisis gap.'}</p>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-[40px] p-8 border border-slate-200 shadow-sm space-y-5">
+            <h3 className="text-xl font-black text-slate-900">Gap Utama per Subtes</h3>
+            <div className="space-y-4">
+              {Object.entries(safeReport.gapBySubTest)
+                .sort((a, b) => b[1] - a[1])
+                .map(([subtest, gap]) => (
+                <div key={subtest} className="space-y-1">
+                  <div className="flex items-center justify-between text-sm font-bold">
+                    <span className="text-slate-700">{subtest}</span>
+                    <span className={cn(gap > 0 ? 'text-rose-600' : 'text-emerald-600')}>
+                      {gap > 0 ? `Kurang ${gap} poin` : `+${Math.abs(gap)} poin di atas target`}
+                    </span>
+                  </div>
+                  <ProgressBar current={Math.max(0, 100 - Math.max(gap, 0) / 2)} total={100} color={gap > 0 ? 'bg-rose-500' : 'bg-emerald-500'} />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-[40px] p-8 border border-slate-200 shadow-sm space-y-4">
+            <h3 className="text-xl font-black text-slate-900">Rekomendasi Latihan Otomatis</h3>
+            <div className="space-y-3">
+              {safeReport.focusRecommendations.map((item, idx) => (
+                <div key={idx} className="bg-indigo-50 border border-indigo-100 rounded-2xl p-4 text-sm font-semibold text-indigo-900">{item}</div>
+              ))}
             </div>
           </div>
 
@@ -885,7 +1011,7 @@ export default function App() {
                 Rekomendasi Strategis
               </h3>
               <div className="space-y-6">
-                {selectedReport.recommendations.map((rec, idx) => (
+                {safeReport.recommendations.map((rec, idx) => (
                   <div key={idx} className="p-8 rounded-[40px] bg-slate-50 border border-slate-100 flex items-center justify-between group hover:bg-indigo-50 hover:border-indigo-200 transition-all shadow-sm hover:shadow-md">
                     <div className="space-y-2">
                       <h4 className="text-xl font-black text-slate-900">{rec.ptn}</h4>

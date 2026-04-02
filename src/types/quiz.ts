@@ -43,6 +43,17 @@ export interface StudyMaterial {
   sources: { name: string; url: string }[];
 }
 
+export interface UserTarget {
+  ptnId: string;
+  prodiId: string;
+}
+
+export interface SubTestHistoryEntry {
+  date: string;
+  scores: { [key in Category]: number };
+  consistency: number; // 0-100, semakin tinggi semakin stabil
+}
+
 export interface UserProgress {
   completedIds: string[];
   wrongIds: string[];
@@ -52,6 +63,8 @@ export interface UserProgress {
   currentDifficulty: Difficulty;
   reports: AssessmentReport[];
   materialMastery: { [concept: string]: number }; // 0-100 per concept
+  target?: UserTarget;
+  subTestHistory: SubTestHistoryEntry[];
 }
 
 export interface AssessmentReport {
@@ -68,6 +81,16 @@ export interface AssessmentReport {
     prodi: string;
     chance: number; // 0-100
   }[];
+  readinessIndex: number;
+  trendSessions: number;
+  consistency: number;
+  gapBySubTest: { [key in Category]: number };
+  focusRecommendations: string[];
+  target?: {
+    ptn: string;
+    prodi: string;
+    passingGrade: number;
+  };
 }
 
 export interface PTN {

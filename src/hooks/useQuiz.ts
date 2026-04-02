@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Question, UserProgress, QuizSession, Difficulty, Category, AssessmentReport } from '../types/quiz';
+import { Question, UserProgress, QuizSession, Difficulty, Category, AssessmentReport, UserTarget } from '../types/quiz';
 import { QUESTIONS } from '../data/questions';
 import { calculateIRTScore, getNationalStats } from '../lib/irt';
 import { PTN_DATA } from '../data/ptn';
 
 const STORAGE_KEY = 'ppu_master_progress_v3';
+const CATEGORIES: Category[] = ['TPS', 'Literasi Indonesia', 'Literasi Inggris', 'Penalaran Matematika'];
 
 const INITIAL_PROGRESS: UserProgress = {
   completedIds: [],
@@ -20,6 +21,7 @@ const INITIAL_PROGRESS: UserProgress = {
   currentDifficulty: 'easy',
   reports: [],
   materialMastery: {},
+  subTestHistory: [],
 };
 
 const SUB_TEST_CONFIGS = [
@@ -32,14 +34,82 @@ const SUB_TEST_CONFIGS = [
   { name: 'Literasi Bahasa Indonesia', category: 'Literasi Indonesia', count: 30, time: 2700 },
   { name: 'Literasi Bahasa Inggris', category: 'Literasi Inggris', count: 20, time: 900 },
   { name: 'Penalaran Matematika', category: 'Penalaran Matematika', count: 20, time: 1800 },
-];
+] as const;
+
+const clamp = (num: number, min: number, max: number) => Math.min(max, Math.max(min, num));
+
+const getConsistencyScore = (scores: number[]) => {
+  if (scores.length < 2) return 100;
+  const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const variance = scores.reduce((acc, score) => acc + (score - mean) ** 2, 0) / scores.length;
+  const stdDev = Math.sqrt(variance);
+  return Math.round(clamp(100 - stdDev / 2.2, 0, 100));
+};
+
+const calculateReadinessInsights = (reports: AssessmentReport[], target?: UserTarget) => {
+  const lookback = clamp(reports.length, 4, 8);
+  const trendReports = reports.slice(0, lookback);
+
+  const avgTotal = trendReports.length > 0
+    ? trendReports.reduce((sum, r) => sum + r.totalScore, 0) / trendReports.length
+    : 0;
+
+  const categoryAverages = CATEGORIES.reduce((acc, category) => {
+    const avg = trendReports.length > 0
+      ? trendReports.reduce((sum, report) => sum + report.categoryScores[category], 0) / trendReports.length
+      : 0;
+    acc[category] = Math.round(avg);
+    return acc;
+  }, {} as { [key in Category]: number });
+
+  const targetPTN = PTN_DATA.find((ptn) => ptn.id === target?.ptnId);
+  const targetProdi = targetPTN?.prodi.find((prodi) => prodi.id === target?.prodiId);
+  const passingGrade = targetProdi?.passingGrade ?? 700;
+
+  const readinessIndex = Math.round(clamp((avgTotal / passingGrade) * 100, 0, 100));
+  const consistency = getConsistencyScore(trendReports.map(r => r.totalScore));
+
+  const gapBySubTest = CATEGORIES.reduce((acc, category) => {
+    acc[category] = Math.round(clamp(passingGrade - categoryAverages[category], -300, 300));
+    return acc;
+  }, {} as { [key in Category]: number });
+
+  const focusRecommendations = Object.entries(gapBySubTest)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([subtest, gap], idx) => {
+      if (gap <= 0) return `Pertahankan ${subtest} dengan mixed drill 20 menit/hari agar skor tetap stabil.`;
+      const weeklyTarget = Math.max(15, Math.round(gap / 3));
+      return `${idx + 1}. Prioritaskan ${subtest}: kejar +${weeklyTarget} poin/minggu dengan latihan bertahap dan evaluasi 2x.`;
+    });
+
+  return {
+    readinessIndex,
+    trendSessions: trendReports.length,
+    consistency,
+    gapBySubTest,
+    focusRecommendations,
+    targetInfo: targetPTN && targetProdi
+      ? {
+          ptn: targetPTN.name,
+          prodi: targetProdi.name,
+          passingGrade: targetProdi.passingGrade,
+        }
+      : undefined,
+  };
+};
 
 export function useQuiz() {
   const [progress, setProgress] = useState<UserProgress>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
-      return { ...INITIAL_PROGRESS, ...parsed, materialMastery: parsed.materialMastery ?? {} };
+      return {
+        ...INITIAL_PROGRESS,
+        ...parsed,
+        materialMastery: parsed.materialMastery ?? {},
+        subTestHistory: parsed.subTestHistory ?? [],
+      };
     }
     return INITIAL_PROGRESS;
   });
@@ -51,7 +121,6 @@ export function useQuiz() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
   }, [progress]);
 
-  // Timer logic for sub-tests — check expiry only, no per-second state update
   useEffect(() => {
     if (session && !session.isSubmitted && session.subTests && session.currentSubTestIdx !== undefined) {
       const currentSubTest = session.subTests[session.currentSubTestIdx];
@@ -64,7 +133,6 @@ export function useQuiz() {
           const subTest = prev.subTests[prev.currentSubTestIdx];
           if (!subTest || subTest.expiresAt === 0 || Date.now() < subTest.expiresAt) return prev;
 
-          // Time is up — auto-advance or submit
           if (prev.currentSubTestIdx < prev.subTests.length - 1) {
             const nextIdx = prev.currentSubTestIdx + 1;
             const nextSubTest = prev.subTests[nextIdx];
@@ -95,55 +163,49 @@ export function useQuiz() {
     let subTests: QuizSession['subTests'] = [];
 
     if (mode === 'tryout') {
-      // Full Tryout: All sub-tests
       let currentIdxOffset = 0;
       const usedIds = new Set<string>();
 
       SUB_TEST_CONFIGS.forEach(config => {
-        // Filter questions by concept or category, excluding already used ones
-        const subPool = QUESTIONS.filter(q => 
-          !usedIds.has(q.id) && 
+        const subPool = QUESTIONS.filter(q =>
+          !usedIds.has(q.id) &&
           (q.concept === config.name || (q.category === config.category && q.concept.includes(config.name)))
         );
-        
-        // If pool is too small, fallback to category pool (excluding used)
+
         let finalPool = subPool;
         if (finalPool.length < config.count) {
           const catPool = QUESTIONS.filter(q => !usedIds.has(q.id) && q.category === config.category);
           finalPool = [...finalPool, ...catPool.filter(q => !finalPool.some(fq => fq.id === q.id))];
         }
 
-        // If still too small, fallback to any questions (even used) to prevent empty sub-tests
         if (finalPool.length < config.count) {
           const remainingNeeded = config.count - finalPool.length;
           const otherPool = QUESTIONS.filter(q => !finalPool.some(fq => fq.id === q.id));
-          // Shuffle otherPool and take what's needed
           const additional = [...otherPool].sort(() => Math.random() - 0.5).slice(0, remainingNeeded);
           finalPool = [...finalPool, ...additional];
         }
 
-        // Final safety check: if still empty (should only happen if QUESTIONS is empty), skip or fill with anything
         if (finalPool.length === 0 && QUESTIONS.length > 0) {
           finalPool = [QUESTIONS[Math.floor(Math.random() * QUESTIONS.length)]];
         }
-        
+
         const shuffled = [...finalPool].sort(() => Math.random() - 0.5).slice(0, config.count);
         shuffled.forEach(q => usedIds.add(q.id));
         selectedQuestions.push(...shuffled);
-        
+
         const indices = Array.from({ length: shuffled.length }, (_, i) => i + currentIdxOffset);
         if (indices.length > 0) {
           subTests?.push({
             name: config.name,
             questionIndices: indices,
             timeLimit: config.time,
-            expiresAt: 0, // set when sub-test becomes active
+            expiresAt: 0,
           });
           currentIdxOffset += shuffled.length;
         }
       });
     } else {
-      const pool = category 
+      const pool = category
         ? QUESTIONS.filter(q => q.category === category)
         : [...QUESTIONS];
 
@@ -165,7 +227,6 @@ export function useQuiz() {
       }
     }
 
-    // Activate the first sub-test's timer immediately
     const finalSubTests = (mode === 'tryout' && subTests && subTests.length > 0)
       ? subTests.map((st, i) => i === 0 ? { ...st, expiresAt: Date.now() + st.timeLimit * 1000 } : st)
       : subTests;
@@ -184,6 +245,10 @@ export function useQuiz() {
       currentSubTestIdx: mode === 'tryout' ? 0 : undefined,
     });
   }, [progress]);
+
+  const setTarget = useCallback((target: UserTarget) => {
+    setProgress(prev => ({ ...prev, target }));
+  }, []);
 
   const toggleMark = () => {
     if (!session || session.isSubmitted) return;
@@ -213,16 +278,15 @@ export function useQuiz() {
   const nextQuestion = () => {
     setSession(prev => {
       if (!prev) return prev;
-      
-      // If in sub-test mode, check if we can go to next question within sub-test
+
       if (prev.subTests && prev.currentSubTestIdx !== undefined) {
         const currentSubTest = prev.subTests[prev.currentSubTestIdx];
         const lastIdxInSubTest = currentSubTest.questionIndices[currentSubTest.questionIndices.length - 1];
-        
+
         if (prev.currentIdx < lastIdxInSubTest) {
           return { ...prev, currentIdx: prev.currentIdx + 1 };
         }
-        return prev; // Lock within sub-test
+        return prev;
       }
 
       if (prev.currentIdx >= prev.questions.length - 1) return prev;
@@ -233,16 +297,15 @@ export function useQuiz() {
   const prevQuestion = () => {
     setSession(prev => {
       if (!prev || prev.currentIdx <= 0) return prev;
-      
-      // If in sub-test mode, check if we can go to prev question within sub-test
+
       if (prev.subTests && prev.currentSubTestIdx !== undefined) {
         const currentSubTest = prev.subTests[prev.currentSubTestIdx];
         const firstIdxInSubTest = currentSubTest.questionIndices[0];
-        
+
         if (prev.currentIdx > firstIdxInSubTest) {
           return { ...prev, currentIdx: prev.currentIdx - 1 };
         }
-        return prev; // Lock within sub-test
+        return prev;
       }
 
       return { ...prev, currentIdx: prev.currentIdx - 1 };
@@ -276,7 +339,6 @@ export function useQuiz() {
     const correctCount = results.filter(r => r.correct).length;
     const today = new Date().toISOString().split('T')[0];
 
-    // IRT Scoring
     const irtScore = calculateIRTScore(results.map(r => ({
       correct: r.correct,
       irtParams: r.irtParams
@@ -284,22 +346,14 @@ export function useQuiz() {
 
     const { rank, percentile, totalParticipants } = getNationalStats(irtScore);
 
-    // Category scores
-    const categoryScores: any = {};
-    const categories: Category[] = ['TPS', 'Literasi Indonesia', 'Literasi Inggris', 'Penalaran Matematika'];
-    categories.forEach(cat => {
+    const categoryScores = {} as { [key in Category]: number };
+    CATEGORIES.forEach(cat => {
       const catResults = results.filter(r => r.category === cat);
-      if (catResults.length > 0) {
-        categoryScores[cat] = calculateIRTScore(catResults.map(r => ({
-          correct: r.correct,
-          irtParams: r.irtParams
-        })));
-      } else {
-        categoryScores[cat] = 0;
-      }
+      categoryScores[cat] = catResults.length > 0
+        ? calculateIRTScore(catResults.map(r => ({ correct: r.correct, irtParams: r.irtParams })))
+        : 0;
     });
 
-    // Material Mastery
     const materialMastery: any = {};
     results.forEach(r => {
       if (!materialMastery[r.concept]) {
@@ -312,8 +366,7 @@ export function useQuiz() {
       materialMastery[key] = Math.round((materialMastery[key].correct / (materialMastery[key].total || 1)) * 100);
     });
 
-    // Rationalization Logic
-    const recommendations = PTN_DATA.flatMap(ptn => 
+    const recommendations = PTN_DATA.flatMap(ptn =>
       ptn.prodi.map(prodi => {
         const diff = irtScore - prodi.passingGrade;
         let chance = 0;
@@ -331,18 +384,6 @@ export function useQuiz() {
         };
       })
     ).sort((a, b) => b.chance - a.chance).slice(0, 5);
-
-    const report: AssessmentReport = {
-      id: `report-${Date.now()}`,
-      date: new Date().toISOString(),
-      totalScore: irtScore,
-      categoryScores: categoryScores as any,
-      nationalRank: rank,
-      totalParticipants,
-      percentile,
-      materialMastery,
-      recommendations
-    };
 
     setProgress(prev => {
       const newWrongIds = [...prev.wrongIds];
@@ -371,6 +412,40 @@ export function useQuiz() {
         else if (newDifficulty === 'medium') newDifficulty = 'easy';
       }
 
+      const baseReport: AssessmentReport = {
+        id: `report-${Date.now()}`,
+        date: new Date().toISOString(),
+        totalScore: irtScore,
+        categoryScores,
+        nationalRank: rank,
+        totalParticipants,
+        percentile,
+        materialMastery,
+        recommendations,
+        readinessIndex: 0,
+        trendSessions: 0,
+        consistency: 0,
+        gapBySubTest: {
+          'TPS': 0,
+          'Literasi Indonesia': 0,
+          'Literasi Inggris': 0,
+          'Penalaran Matematika': 0,
+        },
+        focusRecommendations: [],
+      };
+
+      const reportsWithCurrent = [baseReport, ...prev.reports].slice(0, 10);
+      const readiness = calculateReadinessInsights(reportsWithCurrent, prev.target);
+      const finalReport: AssessmentReport = {
+        ...baseReport,
+        readinessIndex: readiness.readinessIndex,
+        trendSessions: readiness.trendSessions,
+        consistency: readiness.consistency,
+        gapBySubTest: readiness.gapBySubTest,
+        focusRecommendations: readiness.focusRecommendations,
+        target: readiness.targetInfo,
+      };
+
       return {
         ...prev,
         completedIds: newCompletedIds,
@@ -383,7 +458,15 @@ export function useQuiz() {
         categoryStats: updatedStats,
         currentDifficulty: newDifficulty,
         materialMastery: { ...(prev.materialMastery ?? {}), ...materialMastery },
-        reports: [report, ...prev.reports].slice(0, 10),
+        subTestHistory: [
+          {
+            date: finalReport.date,
+            scores: finalReport.categoryScores,
+            consistency: finalReport.consistency,
+          },
+          ...prev.subTestHistory,
+        ].slice(0, 20),
+        reports: [finalReport, ...prev.reports].slice(0, 10),
       };
     });
 
@@ -425,5 +508,6 @@ export function useQuiz() {
     nextSubTest,
     toggleMark,
     setSession,
+    setTarget,
   };
 }
