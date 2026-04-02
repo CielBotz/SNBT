@@ -24,6 +24,7 @@ export interface ComplexOption {
   correct: boolean; // True for Benar/Ya, False for Salah/Tidak
 }
 
+export type QuestionValidityStatus = 'valid_snbt_like' | 'needs_revision' | 'retired';
 export interface QuestionQualityMetadata {
   subtopic: string;
   cognitiveLevel: CognitiveLevel;
@@ -45,6 +46,7 @@ export interface Question {
   shortAnswerCorrect?: number; // For short_answer (number only)
   correctAnswer?: number; // For multiple_choice (index)
   explanation: string;
+  validityStatus?: QuestionValidityStatus;
   blueprint: QuestionBlueprint;
   irtParams: {
     difficulty: number; // b parameter (-3 to 3)

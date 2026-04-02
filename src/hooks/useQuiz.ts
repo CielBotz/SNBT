@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Question, UserProgress, QuizSession, Difficulty, Category, AssessmentReport } from '../types/quiz';
+import { QUESTIONS, TRYOUT_BLUEPRINT } from '../data/questions';
+import { getValidQuestionsForSubtest } from '../data/questionGovernance';
 import { QUESTIONS, SIMULATION_QUESTION_BANK, TRAINING_QUESTION_BANK } from '../data/questions';
 import { calculateIRTScore, getNationalStats } from '../lib/irt';
 import { Question, UserProgress, QuizSession, Difficulty, Category, AssessmentReport, QuizStrategy, SessionRecommendation } from '../types/quiz';
@@ -141,6 +143,14 @@ const SUB_TEST_CONFIGS = [
   { name: 'Literasi Bahasa Indonesia', category: 'Literasi Indonesia', count: 30, time: 2700 },
   { name: 'Literasi Bahasa Inggris', category: 'Literasi Inggris', count: 20, time: 900 },
   { name: 'Penalaran Matematika', category: 'Penalaran Matematika', count: 20, time: 1800 },
+].map((config) => {
+  const blueprint = TRYOUT_BLUEPRINT.find((bp) => bp.subtest === config.name);
+  return {
+    ...config,
+    allowedTypes: blueprint?.stimulusTypes,
+    targetComplexity: blueprint?.complexityTarget,
+  };
+});
 ] as const;
 
 const clamp = (val: number, min = 0, max = 100) => Math.max(min, Math.min(max, val));
@@ -551,6 +561,34 @@ export function useQuiz() {
       const usedIds = new Set<string>();
 
       SUB_TEST_CONFIGS.forEach(config => {
+        const blueprintPool = getValidQuestionsForSubtest(QUESTIONS, config.name)
+          .filter(q => !usedIds.has(q.id))
+          .filter(q => !config.allowedTypes || config.allowedTypes.includes(q.type));
+
+        const targetEasy = Math.round(config.count * (config.targetComplexity?.easy ?? 0));
+        const targetTrap = Math.round(config.count * (config.targetComplexity?.trap ?? 0));
+        const targetMedium = Math.max(0, config.count - targetEasy - targetTrap);
+
+        const easyPool = blueprintPool.filter(q => q.difficulty === 'easy');
+        const mediumPool = blueprintPool.filter(q => q.difficulty === 'medium');
+        const trapPool = blueprintPool.filter(q => q.difficulty === 'trap');
+
+        const pickRandom = (pool: Question[], n: number) => [...pool].sort(() => Math.random() - 0.5).slice(0, n);
+
+        let finalPool: Question[] = [
+          ...pickRandom(easyPool, targetEasy),
+          ...pickRandom(mediumPool, targetMedium),
+          ...pickRandom(trapPool, targetTrap),
+        ];
+
+        if (finalPool.length < config.count) {
+          const additional = blueprintPool
+            .filter(q => !finalPool.some(fq => fq.id === q.id))
+            .sort(() => Math.random() - 0.5)
+            .slice(0, config.count - finalPool.length);
+          finalPool = [...finalPool, ...additional];
+        }
+
         // Filter questions by concept or category, excluding already used ones
         const subPool = sourceBank.filter(q => 
         const subPool = ACTIVE_QUESTIONS.filter(q => 
