@@ -1,7 +1,6 @@
-import { Question } from '../../types/quiz';
-import { withBlueprintMetadata } from './quality';
+import { withBlueprintMetadata, type QuestionSeed } from './quality';
 
-export const LITERASI_EN_QUESTIONS: Question[] = withBlueprintMetadata([
+export const LITERASI_EN_QUESTIONS: QuestionSeed[] = withBlueprintMetadata([
   // --- Literasi Bahasa Inggris ---
   {
     id: 'lit-en-1',

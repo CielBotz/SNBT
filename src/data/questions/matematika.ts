@@ -1,7 +1,6 @@
-import { Question } from '../../types/quiz';
-import { withBlueprintMetadata } from './quality';
+import { withBlueprintMetadata, type QuestionSeed } from './quality';
 
-export const MATEMATIKA_QUESTIONS: Question[] = withBlueprintMetadata([
+export const MATEMATIKA_QUESTIONS: QuestionSeed[] = withBlueprintMetadata([
   // --- Penalaran Matematika ---
   {
     id: 'pm-1',
