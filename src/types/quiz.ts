@@ -8,6 +8,8 @@ export type Concept =
   | 'Literasi Teks' | 'Main Idea' | 'Inference' | 'Vocabulary' | 'Bilangan' | 'Aljabar' | 'Geometri' | 'Data';
 
 export type QuestionType = 'multiple_choice' | 'complex_multiple_choice' | 'short_answer';
+export type CognitiveLevel = 'remember' | 'understand' | 'apply' | 'analyze' | 'evaluate' | 'create';
+export type ItemLifecycleStatus = 'draft' | 'reviewed' | 'active' | 'deprecated';
 export type SourceValidity = 'verified' | 'reviewed' | 'draft';
 
 export interface QuestionBlueprint {
@@ -22,11 +24,20 @@ export interface ComplexOption {
   correct: boolean; // True for Benar/Ya, False for Salah/Tidak
 }
 
+export interface QuestionQualityMetadata {
+  subtopic: string;
+  cognitiveLevel: CognitiveLevel;
+  targetDifficulty: Difficulty;
+  competencyGoal: string;
+  lifecycleStatus: ItemLifecycleStatus;
+}
+
 export interface Question {
   id: string;
   category: Category;
   concept: Concept;
   difficulty: Difficulty;
+  qualityMetadata: QuestionQualityMetadata;
   type: QuestionType;
   question: string;
   options?: string[]; // For multiple_choice
@@ -42,6 +53,18 @@ export interface Question {
   };
 }
 
+export type QuestionBankItem = Omit<Question, 'qualityMetadata'>;
+
+export interface DistractorOptionPerformance {
+  optionIndex: number;
+  selectedCount: number;
+  selectedByIncorrect: number;
+  selectedByCorrect: number;
+}
+
+export interface ItemPerformance {
+  attempts: number;
+  correct: number;
 export interface DistractorStat {
   optionIndex: number;
   selectedCount: number;
@@ -58,6 +81,11 @@ export interface QuestionPerformanceStat {
   highGroupCorrect: number;
   lowGroupAttempts: number;
   lowGroupCorrect: number;
+  discriminationProxy: number;
+  distractorStats: DistractorOptionPerformance[];
+  distractorEffectiveness: number;
+  flaggedIssue: string[];
+  isExcludedFromAdaptive: boolean;
   discriminationIndex: number;
   optionSelections: number[];
   distractorStats: DistractorStat[];
@@ -123,6 +151,7 @@ export interface UserProgress {
   reports: AssessmentReport[];
   materialMastery: { [concept: string]: { correct: number; total: number } };
   materialMastery: { [concept: string]: number }; // 0-100 per concept
+  itemPerformance: Record<string, ItemPerformance>;
   conceptMetrics: { [key in Concept]?: ConceptLongitudinalMetrics };
 }
 

@@ -1,3 +1,6 @@
+import { QuestionBankItem } from '../../types/quiz';
+
+export const SNBT2025_QUESTIONS: QuestionBankItem[] = [
 import { Question } from '../../types/quiz';
 import { withBlueprintMetadata } from './quality';
 

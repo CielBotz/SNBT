@@ -1,3 +1,6 @@
+import { QuestionBankItem } from '../../types/quiz';
+
+export const LITERASI_ID_QUESTIONS: QuestionBankItem[] = [
 import { Question } from '../../types/quiz';
 import { withBlueprintMetadata } from './quality';
 
