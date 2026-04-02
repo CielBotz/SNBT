@@ -27,7 +27,7 @@ import {
 import { useQuiz } from './hooks/useQuiz';
 import { formatTime, cn } from './lib/utils';
 import { Difficulty, Category, Question, AssessmentReport, StudyMaterial, QuizSession } from './types/quiz';
-import { STUDY_MATERIALS } from './data/materials';
+import { STUDY_MATERIALS, findMaterialByConcept } from './data/materials';
 import ReactMarkdown from 'react-markdown';
 import visualTPS from './assets/visuals/style-pack-tps.svg';
 import visualLiterasi from './assets/visuals/style-pack-literasi.svg';
@@ -92,12 +92,12 @@ const SubTestCountdown = React.memo(({ expiresAt, onExpire }: { expiresAt: numbe
 
 const DifficultyBadge = ({ difficulty }: { difficulty: Difficulty }) => {
   const colors = {
-    easy: 'bg-green-100 text-green-700 border-green-200',
-    medium: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-    trap: 'bg-red-100 text-red-700 border-red-200',
+    easy: 'ui-badge-success',
+    medium: 'ui-badge-warning',
+    trap: 'ui-badge-info',
   };
   return (
-    <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border", colors[difficulty])}>
+    <span className={cn("ui-badge text-[10px] font-bold uppercase", colors[difficulty])}>
       {difficulty}
     </span>
   );
@@ -121,7 +121,7 @@ const QuestionTimer = ({ isSubmitted, currentIdx }: { isSubmitted: boolean; curr
   }, [isSubmitted, currentIdx]);
 
   return (
-    <div className="flex items-center gap-3 text-xs font-mono text-slate-400 bg-slate-50 px-4 py-2 rounded-full border border-slate-100">
+    <div className="ui-badge font-mono text-slate-600 bg-slate-50 border-slate-200">
       <Clock size={14} className="text-slate-300" />
       Waktu Soal: {formatTime(time)}
     </div>
@@ -247,8 +247,8 @@ const QuestionArea = React.memo(({ question, session, answerQuestion }: {
       <div className="space-y-4">
         <div className="flex items-center gap-2 flex-wrap">
           <DifficultyBadge difficulty={question.difficulty} />
-          <span className="text-xs font-semibold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">{question.category}</span>
-          <span className="text-xs font-semibold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">{question.concept}</span>
+          <span className="ui-badge-info">{question.category}</span>
+          <span className="ui-badge-info">{question.concept}</span>
           <QuestionTimer isSubmitted={session.isSubmitted} currentIdx={session.currentIdx} />
         </div>
         <div className="prose prose-slate max-w-none">
@@ -287,16 +287,28 @@ export default function App() {
     submitQuiz,
     nextSubTest,
     toggleMark,
-    setSession
+    setSession,
+    markMaterialRead
   } = useQuiz();
 
   const [view, setView] = useState<'dashboard' | 'quiz' | 'analytics' | 'report' | 'study'>('dashboard');
   const [selectedReport, setSelectedReport] = useState<AssessmentReport | null>(null);
   const [selectedMaterial, setSelectedMaterial] = useState<StudyMaterial | null>(null);
+  const [activeRemedialCycleId, setActiveRemedialCycleId] = useState<string | null>(null);
 
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [showSubTestConfirm, setShowSubTestConfirm] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
+  const iconOnlyFocusClass = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white";
+
+  const findMaterialFromRemedial = (concept: string, materialId?: string) => {
+    if (materialId) {
+      const byId = STUDY_MATERIALS.find(material => material.id === materialId);
+      if (byId) return byId;
+    }
+    const normalizedConcept = concept.toLowerCase().trim();
+    return STUDY_MATERIALS.find(material => material.concept.toLowerCase().trim() === normalizedConcept);
+  };
 
   const getModeName = (mode: string) => {
     switch(mode) {
@@ -304,11 +316,12 @@ export default function App() {
       case 'daily': return 'Latihan Harian';
       case 'tryout': return 'Tryout Full';
       case 'category': return 'Latihan Kategori';
+      case 'drill15': return 'Targeted Drill 15 Menit';
       default: return mode;
     }
   };
 
-  const handleStart = (mode: 'tryout' | 'mini' | 'daily' | 'category', category?: Category) => {
+  const handleStart = (mode: 'tryout' | 'mini' | 'daily' | 'drill15' | 'category', category?: Category) => {
     startSession(mode, category);
     setView('quiz');
   };
@@ -318,17 +331,52 @@ export default function App() {
     setView('report');
   };
 
+  const startRemedialBaseline = (concept: any) => {
+    startSession('mini', undefined, { concept, remedialPhase: 'baseline' });
+    setView('quiz');
+  };
+
+  const continueToMaterial = (concept: any, cycleId: string) => {
+    const material = findMaterialByConcept(concept);
+    if (!material) return;
+    setActiveRemedialCycleId(cycleId);
+    setSelectedMaterial(material);
+    setView('study');
+  };
+
   const currentQuestion = session?.questions[session.currentIdx];
   const isLastQuestion = session && session.currentIdx === session.questions.length - 1;
   const currentSubTest = session?.subTests && session.currentSubTestIdx !== undefined ? session.subTests[session.currentSubTestIdx] : null;
 
   // --- Views ---
 
-  const DashboardView = () => (
+  const DashboardView = () => {
+    const ongoingCycles = progress.remedialCycles.filter(c => c.status !== 'completed');
+    const weeklyConceptDelta = progress.remedialCycles.reduce<Record<string, { concept: string; week: string; delta: number }>>((acc, cycle) => {
+      if (cycle.baselineScore === undefined || cycle.afterScore === undefined || !cycle.completedAt) return acc;
+      const weekKey = `${new Date(cycle.completedAt).getFullYear()}-W${Math.ceil(new Date(cycle.completedAt).getDate() / 7)}`;
+      const key = `${cycle.concept}-${weekKey}`;
+      if (!acc[key]) acc[key] = { concept: cycle.concept, week: weekKey, delta: 0 };
+      acc[key].delta += cycle.afterScore - cycle.baselineScore;
+      return acc;
+    }, {});
+
+    return (
     <div className="max-w-6xl mx-auto p-6 space-y-10 pb-32">
+      {ongoingCycles.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-3xl p-6 flex items-center justify-between gap-6">
+          <div>
+            <p className="text-xs font-black uppercase tracking-widest text-amber-700">Notifikasi Remedial</p>
+            <p className="text-slate-800 font-bold">Ada {ongoingCycles.length} siklus remedial belum tuntas. Lanjutkan dari dashboard report atau materi.</p>
+          </div>
+          <button onClick={() => setView('report')} className="px-4 py-2 rounded-xl bg-amber-500 text-white font-black text-xs uppercase tracking-widest">
+            Lanjut Remedial
+          </button>
+        </div>
+      )}
       {/* Hero Section - Bento Style */}
       <div className="grid md:grid-cols-3 gap-6">
-        <div className="md:col-span-2 bg-slate-900 rounded-[48px] p-12 text-white relative overflow-hidden shadow-2xl shadow-slate-200">
+        <div className="md:col-span-2 ui-card bg-slate-900 rounded-[48px] p-12 text-white relative overflow-hidden shadow-2xl shadow-slate-200 border-slate-800">
           <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-indigo-600/20 rounded-full blur-[120px] -mr-32 -mt-32" />
           <div className="absolute bottom-0 left-0 w-64 h-64 bg-violet-600/10 rounded-full blur-[80px] -ml-20 -mb-20" />
           
@@ -339,11 +387,11 @@ export default function App() {
             </div>
             
             <div className="space-y-4">
-              <h1 className="text-6xl font-black leading-[1.05] tracking-tight">
+              <h1 className="text-display leading-[1.05]">
                 Taklukkan <br />
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-violet-400">Kampus Impian.</span>
               </h1>
-              <p className="text-slate-400 text-xl font-medium max-w-lg leading-relaxed">
+              <p className="text-body text-slate-300 max-w-lg">
                 Platform simulasi dengan sistem penilaian IRT terakurat untuk mengukur peluang lolos PTN favoritmu.
               </p>
             </div>
@@ -351,14 +399,14 @@ export default function App() {
             <div className="flex flex-wrap gap-4 pt-6">
               <button 
                 onClick={() => handleStart('tryout')}
-                className="bg-indigo-600 text-white px-10 py-5 rounded-[24px] font-black hover:bg-indigo-500 transition-all shadow-xl shadow-indigo-900/40 flex items-center gap-4 group text-sm uppercase tracking-widest"
+                className="ui-btn-primary px-10 py-5 rounded-[24px] shadow-xl shadow-indigo-900/40 group text-sm uppercase tracking-widest"
               >
                 Mulai Tryout Full
                 <ArrowRight size={20} className="group-hover:translate-x-2 transition-transform" />
               </button>
               <button 
                 onClick={() => setView('study')}
-                className="bg-white/5 backdrop-blur-md text-white border border-white/10 px-10 py-5 rounded-[24px] font-black hover:bg-white/10 transition-all text-sm uppercase tracking-widest"
+                className="ui-btn px-10 py-5 rounded-[24px] bg-white/5 backdrop-blur-md text-white border border-white/10 hover:bg-white/10 text-sm uppercase tracking-widest"
               >
                 Pelajari Materi
               </button>
@@ -366,7 +414,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="bg-white rounded-[48px] p-10 border border-slate-200 shadow-sm flex flex-col justify-between group hover:border-indigo-300 transition-all relative overflow-hidden">
+        <div className="ui-card ui-card-hover rounded-[48px] p-10 flex flex-col justify-between group relative overflow-hidden">
           <div className="absolute top-0 right-0 p-8 opacity-[0.03] group-hover:opacity-[0.08] transition-opacity">
             <Flame size={180} />
           </div>
@@ -401,7 +449,7 @@ export default function App() {
           { label: 'Materi Dikuasai', value: `${Math.round((Object.keys(progress.materialMastery).length / 20) * 100)}%`, icon: GraduationCap, color: 'text-indigo-500', bg: 'bg-indigo-50' },
           { label: 'Peringkat Nasional', value: progress.reports.length > 0 ? `#${progress.reports[0].nationalRank}` : '-', icon: Award, color: 'text-violet-500', bg: 'bg-violet-50' },
         ].map((stat, idx) => (
-          <div key={idx} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-3 hover:shadow-md transition-all">
+          <div key={idx} className="ui-card ui-card-hover p-6 rounded-3xl space-y-3">
             <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center", stat.bg)}>
               <stat.icon className={stat.color} size={20} />
             </div>
@@ -414,9 +462,50 @@ export default function App() {
       </div>
 
       {/* Main Features */}
+      {progress.lastRemedialConcepts && progress.lastRemedialConcepts.length > 0 && (
+        <section className="space-y-5">
+          <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3">
+            <div className="bg-amber-500 w-2 h-8 rounded-full" />
+            Prioritas Belajar Hari Ini
+          </h2>
+          <div className="grid md:grid-cols-3 gap-5">
+            {progress.lastRemedialConcepts.slice(0, 3).map((item, idx) => {
+              const material = findMaterialFromRemedial(item.concept, item.materialId);
+              return (
+                <div key={`${item.concept}-${idx}`} className="bg-white p-6 rounded-3xl border border-amber-100 shadow-sm space-y-4">
+                  <div>
+                    <p className="text-[10px] text-amber-600 uppercase tracking-widest font-black">Akurasi Sesi Terakhir</p>
+                    <p className="text-2xl font-black text-slate-900">{item.accuracy}%</p>
+                    <p className="text-sm text-slate-500 font-semibold">{item.concept}</p>
+                  </div>
+                  {material ? (
+                    <button
+                      onClick={() => {
+                        setSelectedMaterial(material);
+                        setView('study');
+                      }}
+                      className="w-full bg-amber-500 text-white py-3 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-amber-400 transition-colors"
+                    >
+                      Pelajari konsep ini sekarang
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setView('study')}
+                      className="w-full bg-slate-900 text-white py-3 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-colors"
+                    >
+                      Buka Pustaka Materi
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       <section className="space-y-6">
         <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3">
+          <h2 className="text-title flex items-center gap-3">
             <div className="bg-indigo-600 w-2 h-8 rounded-full" />
             Pilih Mode Latihan
           </h2>
@@ -425,13 +514,14 @@ export default function App() {
           {[
             { id: 'mini', title: 'Mini Tryout', desc: '10 Soal campuran untuk latihan cepat 15 menit.', icon: Zap, color: 'bg-amber-500', shadow: 'shadow-amber-200' },
             { id: 'daily', title: 'Latihan Harian', desc: '5 Soal adaptif berdasarkan kelemahanmu.', icon: Target, color: 'bg-indigo-500', shadow: 'shadow-indigo-200' },
+            { id: 'drill15', title: 'Targeted Drill 15 Menit', desc: 'Fokus otomatis ke 2-3 konsep terlemah dengan spaced repetition.', icon: AlertTriangle, color: 'bg-rose-500', shadow: 'shadow-rose-200' },
             { id: 'study', title: 'Belajar Mandiri', desc: 'Pahami konsep materi secara mendalam.', icon: BookOpen, color: 'bg-emerald-500', shadow: 'shadow-emerald-200' },
           ].map((feature) => (
             <motion.button
               key={feature.id}
               whileHover={{ y: -8 }}
               onClick={() => feature.id === 'study' ? setView('study') : handleStart(feature.id as any)}
-              className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-sm text-left space-y-6 group hover:border-indigo-300 transition-all"
+              className="ui-card ui-card-hover p-8 rounded-[40px] text-left space-y-6 group"
             >
               <div className={cn("w-16 h-16 rounded-3xl flex items-center justify-center text-white shadow-2xl", feature.color, feature.shadow)}>
                 <feature.icon size={32} />
@@ -448,9 +538,45 @@ export default function App() {
         </div>
       </section>
 
+      {session?.recommendation && (
+        <section className="space-y-4">
+          <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3">
+            <div className="bg-emerald-600 w-2 h-8 rounded-full" />
+            Transparansi Rekomendasi Engine
+          </h2>
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 space-y-4 shadow-sm">
+            <p className="text-sm text-slate-600 font-medium">
+              Mode terakhir: <span className="font-black text-slate-900">{getModeName(session.recommendation.mode)}</span>
+            </p>
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4">
+                <p className="text-xs uppercase tracking-widest font-black text-rose-600">Konsep Terlemah</p>
+                <p className="text-sm font-bold text-slate-800 mt-2">{session.recommendation.weakestConcepts.join(', ') || '-'}</p>
+              </div>
+              <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4">
+                <p className="text-xs uppercase tracking-widest font-black text-indigo-600">Retensi Konsep Kuat</p>
+                <p className="text-sm font-bold text-slate-800 mt-2">{session.recommendation.strongestConcepts.join(', ') || '-'}</p>
+              </div>
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+                <p className="text-xs uppercase tracking-widest font-black text-amber-600">Target Drill</p>
+                <p className="text-sm font-bold text-slate-800 mt-2">{session.recommendation.targetConcepts.join(', ') || 'N/A di mode ini'}</p>
+              </div>
+            </div>
+            <ul className="space-y-2">
+              {session.recommendation.reasons.map((reason, idx) => (
+                <li key={idx} className="text-sm text-slate-700 font-medium flex gap-2">
+                  <span className="text-emerald-600 font-black">•</span>
+                  <span>{reason}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      )}
+
       {/* Category Selection */}
       <section className="space-y-6">
-        <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3">
+        <h2 className="text-title flex items-center gap-3">
           <div className="bg-violet-600 w-2 h-8 rounded-full" />
           Fokus Per Kategori
         </h2>
@@ -466,7 +592,7 @@ export default function App() {
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={() => handleStart('category', cat.id as Category)}
-              className="bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm text-center flex flex-col items-center gap-4 group hover:bg-slate-50 transition-all"
+              className="ui-card ui-card-hover p-6 rounded-[32px] text-center flex flex-col items-center gap-4 group hover:bg-slate-50"
             >
               <div className={cn("w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-lg group-hover:rotate-6 transition-transform", cat.color)}>
                 <cat.icon size={32} />
@@ -476,8 +602,33 @@ export default function App() {
           ))}
         </div>
       </section>
+
+      <section className="space-y-6">
+        <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3">
+          <div className="bg-emerald-600 w-2 h-8 rounded-full" />
+          Improvement Delta per Konsep (Mingguan)
+        </h2>
+        <div className="grid md:grid-cols-2 gap-4">
+          {Object.values(weeklyConceptDelta).length > 0 ? Object.values(weeklyConceptDelta).map((item) => (
+            <div key={`${item.concept}-${item.week}`} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-xs text-slate-400 font-black uppercase tracking-widest">{item.week}</p>
+                <p className="font-black text-slate-900">{item.concept}</p>
+              </div>
+              <p className={cn("text-xl font-black", item.delta >= 0 ? "text-emerald-600" : "text-rose-600")}>
+                {item.delta >= 0 ? '+' : ''}{item.delta}
+              </p>
+            </div>
+          )) : (
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 text-slate-500 font-medium">
+              Belum ada data delta mingguan. Selesaikan siklus remedial (baseline → materi → mini-quiz ulang).
+            </div>
+          )}
+        </div>
+      </section>
     </div>
   );
+  };
 
   const QuizView = () => {
     if (!session || !currentQuestion) return null;
@@ -485,7 +636,7 @@ export default function App() {
     return (
       <div className="min-h-screen bg-[#f8fafc] flex flex-col font-sans">
         {/* Header CBT Resmi Style - Enhanced */}
-        <nav className="bg-[#1e293b] text-white px-6 py-4 flex justify-between items-center sticky top-0 z-50 shadow-xl">
+        <nav className="ui-navbar flex justify-between items-center">
           <div className="flex items-center gap-8">
             <div className="flex items-center gap-4">
               <div className="bg-white p-2 rounded-xl shadow-inner">
@@ -534,7 +685,7 @@ export default function App() {
                     setShowSubmitConfirm(true);
                   }
                 }}
-                className="bg-[#f59e0b] text-slate-900 px-10 py-3 rounded-2xl font-black hover:bg-[#d97706] transition-all text-xs uppercase tracking-[0.2em] shadow-lg shadow-amber-900/20 active:scale-95"
+                className="ui-btn-warning px-10 py-3 rounded-2xl text-xs uppercase tracking-[0.2em] shadow-lg shadow-amber-900/20 active:scale-95"
               >
                 {session.mode === 'tryout' && session.currentSubTestIdx !== undefined && session.subTests && session.currentSubTestIdx < session.subTests.length - 1 
                   ? 'SELESAI SUB-TES' 
@@ -572,7 +723,7 @@ export default function App() {
                 <div className="flex gap-3">
                   <button 
                     onClick={() => setShowSubTestConfirm(false)}
-                    className="flex-1 py-4 rounded-2xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
+                    className="ui-btn-secondary flex-1 py-4 rounded-2xl"
                   >
                     Batal
                   </button>
@@ -582,7 +733,7 @@ export default function App() {
                       setShowSubTestConfirm(false);
                       window.scrollTo(0, 0);
                     }}
-                    className="flex-1 py-4 rounded-2xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-100"
+                    className="ui-btn-primary flex-1 py-4 rounded-2xl shadow-lg shadow-indigo-100"
                   >
                     Lanjut
                   </button>
@@ -619,18 +770,21 @@ export default function App() {
                 <div className="flex gap-3">
                   <button 
                     onClick={() => setShowSubmitConfirm(false)}
-                    className="flex-1 py-4 rounded-2xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
+                    className="ui-btn-secondary flex-1 py-4 rounded-2xl"
                   >
                     Batal
                   </button>
                   <button 
                     onClick={() => {
-                      submitQuiz();
+                      const report = submitQuiz();
+                      if (report) {
+                        setSelectedReport(report);
+                      }
                       setShowSubmitConfirm(false);
                       setView('report');
                       window.scrollTo(0, 0);
                     }}
-                    className="flex-1 py-4 rounded-2xl font-bold text-white bg-green-600 hover:bg-green-600 transition-colors shadow-lg shadow-green-100"
+                    className="ui-btn-success flex-1 py-4 rounded-2xl shadow-lg shadow-green-100"
                   >
                     Ya, Selesai
                   </button>
@@ -791,7 +945,8 @@ export default function App() {
           <div className="flex items-center gap-6">
             <button 
               onClick={() => setView('dashboard')} 
-              className="p-3 hover:bg-slate-50 border border-slate-200 rounded-2xl text-slate-600 transition-all shadow-sm hover:shadow-md"
+              aria-label="Kembali ke Dashboard"
+              className={cn("p-3 hover:bg-slate-50 border border-slate-200 rounded-2xl text-slate-600 transition-all shadow-sm hover:shadow-md", iconOnlyFocusClass)}
             >
               <ChevronLeft size={24} />
             </button>
@@ -866,6 +1021,32 @@ export default function App() {
               className="w-full rounded-[28px] border border-slate-200 bg-slate-900"
             />
           </section>
+          <div className="bg-white rounded-[40px] p-8 border border-slate-200 shadow-sm space-y-6">
+            <h3 className="text-2xl font-black text-slate-900">3 Konsep Prioritas Lemah</h3>
+            <div className="grid md:grid-cols-3 gap-4">
+              {selectedReport.prioritizedWeakConcepts?.map((weak) => {
+                const existingCycle = progress.remedialCycles.find((c) => c.concept === weak.concept && c.status !== 'completed');
+                return (
+                  <div key={weak.concept} className="p-5 rounded-2xl bg-rose-50 border border-rose-100 space-y-4">
+                    <div>
+                      <p className="text-xs text-rose-500 font-black uppercase tracking-widest">Mastery</p>
+                      <p className="text-2xl font-black text-rose-700">{weak.score}%</p>
+                    </div>
+                    <p className="font-black text-slate-900">{weak.concept}</p>
+                    {!existingCycle ? (
+                      <button onClick={() => startRemedialBaseline(weak.concept)} className="w-full py-2.5 rounded-xl bg-indigo-600 text-white font-black text-xs uppercase tracking-widest">
+                        Mulai Baseline Quiz
+                      </button>
+                    ) : (
+                      <button onClick={() => continueToMaterial(weak.concept, existingCycle.id)} className="w-full py-2.5 rounded-xl bg-emerald-600 text-white font-black text-xs uppercase tracking-widest">
+                        Baca Materi & Quiz Ulang
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
 
           <div className="grid lg:grid-cols-2 gap-10">
             <div className="bg-white rounded-[56px] p-10 border border-slate-200 shadow-sm space-y-10">
@@ -932,6 +1113,45 @@ export default function App() {
               </div>
             </div>
           </div>
+
+          <div className="bg-white rounded-[56px] p-10 border border-slate-200 shadow-sm space-y-8">
+            <div className="flex items-center gap-4">
+              <div className="bg-amber-50 p-3 rounded-2xl">
+                <AlertTriangle size={24} className="text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-2xl font-black text-slate-900">Rekomendasi Remedial</h3>
+                <p className="text-sm text-slate-500 font-medium">Konsep dengan akurasi terendah dari sesi ini.</p>
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-6">
+              {(selectedReport.remedialConcepts ?? []).slice(0, 3).map((item, idx) => {
+                const material = findMaterialFromRemedial(item.concept, item.materialId);
+                return (
+                  <div key={`${item.concept}-${idx}`} className="p-6 rounded-[32px] border border-amber-100 bg-amber-50/40 space-y-5">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Akurasi</p>
+                      <p className="text-3xl font-black text-slate-900">{item.accuracy}%</p>
+                      <p className="text-sm font-semibold text-slate-600 mt-1">{item.concept}</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (material) setSelectedMaterial(material);
+                        setView('study');
+                      }}
+                      className="w-full bg-indigo-600 text-white py-3.5 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-indigo-500 transition-colors"
+                    >
+                      Pelajari konsep ini sekarang
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            {(selectedReport.remedialConcepts ?? []).length === 0 && (
+              <p className="text-slate-500 font-medium">Belum ada data remedial untuk laporan ini.</p>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -954,7 +1174,11 @@ export default function App() {
       <div className="max-w-6xl mx-auto p-6 space-y-10 pb-32">
         <header className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <button onClick={() => setView('dashboard')} className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-600 hover:bg-slate-50 transition-colors shadow-sm">
+            <button
+              onClick={() => setView('dashboard')}
+              aria-label="Kembali ke Dashboard"
+              className={cn("p-3 bg-white border border-slate-200 rounded-2xl text-slate-600 hover:bg-slate-50 transition-colors shadow-sm", iconOnlyFocusClass)}
+            >
               <ChevronLeft size={24} />
             </button>
             <div>
@@ -970,7 +1194,7 @@ export default function App() {
 
         <div className="grid lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-8">
-            <div className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-sm space-y-8">
+            <div className="ui-card p-8 rounded-[40px] space-y-8">
               <div className="flex items-center justify-between">
                 <h3 className="font-black text-slate-800 flex items-center gap-3">
                   <div className="bg-indigo-50 p-2 rounded-xl">
@@ -999,7 +1223,7 @@ export default function App() {
               </div>
             </div>
 
-            <div className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-sm space-y-8">
+            <div className="ui-card p-8 rounded-[40px] space-y-8">
               <h3 className="font-black text-slate-800 flex items-center gap-3">
                 <div className="bg-violet-50 p-2 rounded-xl">
                   <BarChart3 size={20} className="text-violet-600" />
@@ -1045,7 +1269,7 @@ export default function App() {
               </div>
             </div>
 
-            <div className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-sm space-y-6">
+            <div className="ui-card p-8 rounded-[40px] space-y-6">
               <h3 className="font-black text-slate-800">Riwayat Tryout</h3>
               <div className="space-y-4">
                 {progress.reports.length > 0 ? progress.reports.map((report) => (
@@ -1132,7 +1356,8 @@ export default function App() {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setView('dashboard')}
-                className="p-2 bg-white/10 hover:bg-white/20 rounded-2xl text-white transition-colors"
+                aria-label="Kembali ke Dashboard"
+                className={cn("p-2 bg-white/10 hover:bg-white/20 rounded-2xl text-white transition-colors", iconOnlyFocusClass)}
               >
                 <ChevronLeft size={20} />
               </button>
@@ -1389,6 +1614,25 @@ export default function App() {
                       ))}
                     </div>
                   </div>
+
+                  {activeRemedialCycleId && (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-[28px] p-6 space-y-4">
+                      <p className="text-xs font-black uppercase tracking-widest text-emerald-700">Langkah Berikutnya</p>
+                      <p className="text-slate-800 font-bold">Setelah membaca materi, lanjutkan mini-quiz khusus konsep ini untuk mengukur score-after.</p>
+                      <button
+                        onClick={() => {
+                          markMaterialRead(activeRemedialCycleId);
+                          startSession('mini', undefined, { concept: selectedMaterial.concept, remedialPhase: 'after', cycleId: activeRemedialCycleId });
+                          setSelectedMaterial(null);
+                          setActiveRemedialCycleId(null);
+                          setView('quiz');
+                        }}
+                        className="px-6 py-3 rounded-2xl bg-emerald-600 text-white font-black text-xs uppercase tracking-widest"
+                      >
+                        Mulai Mini-Quiz Konsep Ini
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1412,13 +1656,28 @@ export default function App() {
           >
             <DashboardView />
             <nav className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-white/80 backdrop-blur-xl border border-slate-200 px-8 py-4 rounded-[32px] shadow-2xl shadow-indigo-100 flex gap-12 z-50">
-              <button onClick={() => setView('dashboard')} className={cn("p-3 rounded-2xl transition-all", "bg-indigo-600 text-white shadow-xl shadow-indigo-200")}>
+              <button
+                onClick={() => setView('dashboard')}
+                aria-label="Buka Dashboard"
+                aria-current={view === 'dashboard' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "bg-indigo-600 text-white shadow-xl shadow-indigo-200", iconOnlyFocusClass)}
+              >
                 <Home size={24} />
               </button>
-              <button onClick={() => setView('study')} className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600")}>
+              <button
+                onClick={() => setView('study')}
+                aria-label="Buka Belajar Mandiri"
+                aria-current={view === 'study' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600", iconOnlyFocusClass)}
+              >
                 <BookOpen size={24} />
               </button>
-              <button onClick={() => setView('analytics')} className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600")}>
+              <button
+                onClick={() => setView('analytics')}
+                aria-label="Buka Analisis Performa"
+                aria-current={view === 'analytics' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600", iconOnlyFocusClass)}
+              >
                 <BarChart3 size={24} />
               </button>
             </nav>
@@ -1447,13 +1706,28 @@ export default function App() {
           >
             <AnalyticsView />
             <nav className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-white/80 backdrop-blur-xl border border-slate-200 px-8 py-4 rounded-[32px] shadow-2xl shadow-indigo-100 flex gap-12 z-50">
-              <button onClick={() => setView('dashboard')} className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600")}>
+              <button
+                onClick={() => setView('dashboard')}
+                aria-label="Buka Dashboard"
+                aria-current={view === 'dashboard' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600", iconOnlyFocusClass)}
+              >
                 <Home size={24} />
               </button>
-              <button onClick={() => setView('study')} className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600")}>
+              <button
+                onClick={() => setView('study')}
+                aria-label="Buka Belajar Mandiri"
+                aria-current={view === 'study' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600", iconOnlyFocusClass)}
+              >
                 <BookOpen size={24} />
               </button>
-              <button onClick={() => setView('analytics')} className={cn("p-3 rounded-2xl transition-all", "bg-indigo-600 text-white shadow-xl shadow-indigo-200")}>
+              <button
+                onClick={() => setView('analytics')}
+                aria-label="Buka Analisis Performa"
+                aria-current={view === 'analytics' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "bg-indigo-600 text-white shadow-xl shadow-indigo-200", iconOnlyFocusClass)}
+              >
                 <BarChart3 size={24} />
               </button>
             </nav>
@@ -1482,13 +1756,28 @@ export default function App() {
           >
             <StudyView />
             <nav className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-white/80 backdrop-blur-xl border border-slate-200 px-8 py-4 rounded-[32px] shadow-2xl shadow-indigo-100 flex gap-12 z-50">
-              <button onClick={() => setView('dashboard')} className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600")}>
+              <button
+                onClick={() => setView('dashboard')}
+                aria-label="Buka Dashboard"
+                aria-current={view === 'dashboard' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600", iconOnlyFocusClass)}
+              >
                 <Home size={24} />
               </button>
-              <button onClick={() => setView('study')} className={cn("p-3 rounded-2xl transition-all", "bg-indigo-600 text-white shadow-xl shadow-indigo-200")}>
+              <button
+                onClick={() => setView('study')}
+                aria-label="Buka Belajar Mandiri"
+                aria-current={view === 'study' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "bg-indigo-600 text-white shadow-xl shadow-indigo-200", iconOnlyFocusClass)}
+              >
                 <BookOpen size={24} />
               </button>
-              <button onClick={() => setView('analytics')} className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600")}>
+              <button
+                onClick={() => setView('analytics')}
+                aria-label="Buka Analisis Performa"
+                aria-current={view === 'analytics' ? 'page' : undefined}
+                className={cn("p-3 rounded-2xl transition-all", "text-slate-400 hover:text-slate-600", iconOnlyFocusClass)}
+              >
                 <BarChart3 size={24} />
               </button>
             </nav>
