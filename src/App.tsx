@@ -15,6 +15,50 @@ function QuestionCard({
   onAnswer: (value: QuestionAnswer) => void;
   submitted: boolean;
 }) {
+  if (question.type === 'complex_multiple_choice') {
+    const complexOptions = question.complexOptions ?? [];
+
+    if (complexOptions.length === 0) {
+      return (
+        <div className="space-y-3">
+          <p className="font-semibold text-slate-700">{question.question}</p>
+          <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+            Konten soal tidak valid: pernyataan untuk tipe complex multiple choice belum tersedia.
+          </p>
+        </div>
+      );
+    }
+
+    const selectedAnswers = Array.isArray(answer) ? answer : [];
+
+    return (
+      <div className="space-y-3">
+        <p className="font-semibold text-slate-700">{question.question}</p>
+        <div className="space-y-2">
+          {complexOptions.map((option, idx) => (
+            <label
+              key={`${question.id}-${idx}`}
+              className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 p-3"
+            >
+              <input
+                type="checkbox"
+                checked={Boolean(selectedAnswers[idx])}
+                disabled={submitted}
+                onChange={(e) => {
+                  const nextAnswers = complexOptions.map((_, optionIdx) =>
+                    optionIdx === idx ? e.target.checked : Boolean(selectedAnswers[optionIdx]),
+                  );
+                  onAnswer(nextAnswers);
+                }}
+              />
+              <span className="text-slate-700">{option.statement}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   if (question.type === 'short_answer') {
     return (
       <div className="space-y-3">
