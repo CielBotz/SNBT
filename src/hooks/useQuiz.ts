@@ -50,6 +50,7 @@ const INITIAL_PROGRESS: UserProgress = {
   },
   currentDifficulty: 'easy',
   reports: [],
+  simulationReports: [],
   materialMastery: {},
   subTestHistory: {},
 };
@@ -211,6 +212,8 @@ const SUB_TEST_CONFIGS = [
   { name: 'Literasi Bahasa Indonesia', category: 'Literasi Indonesia', count: 30, time: 2700 },
   { name: 'Literasi Bahasa Inggris', category: 'Literasi Inggris', count: 20, time: 900 },
   { name: 'Penalaran Matematika', category: 'Penalaran Matematika', count: 20, time: 1800 },
+];
+const FULL_EXAM_TOTAL_TIME = SUB_TEST_CONFIGS.reduce((acc, st) => acc + st.time, 0);
 ] as const;
 
 const clamp = (num: number, min: number, max: number) => Math.min(max, Math.max(min, num));
@@ -526,6 +529,7 @@ export function useQuiz() {
         ...INITIAL_PROGRESS,
         ...parsed,
         materialMastery: parsed.materialMastery ?? {},
+        simulationReports: parsed.simulationReports ?? [],
         subTestHistory: parsed.subTestHistory ?? {},
         subTestHistory: parsed.subTestHistory ?? [],
         itemPerformance: parsed.itemPerformance ?? {},
@@ -562,6 +566,55 @@ export function useQuiz() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
   }, [progress]);
 
+  const buildFullExamSession = useCallback(() => {
+    const selectedQuestions: Question[] = [];
+    const subTests: NonNullable<QuizSession['subTests']> = [];
+    let currentIdxOffset = 0;
+    const usedIds = new Set<string>();
+
+    SUB_TEST_CONFIGS.forEach(config => {
+      const subPool = QUESTIONS.filter(q =>
+        !usedIds.has(q.id) &&
+        (q.concept === config.name || (q.category === config.category && q.concept.includes(config.name)))
+      );
+
+      let finalPool = subPool;
+      if (finalPool.length < config.count) {
+        const catPool = QUESTIONS.filter(q => !usedIds.has(q.id) && q.category === config.category);
+        finalPool = [...finalPool, ...catPool.filter(q => !finalPool.some(fq => fq.id === q.id))];
+      }
+
+      if (finalPool.length < config.count) {
+        const remainingNeeded = config.count - finalPool.length;
+        const otherPool = QUESTIONS.filter(q => !finalPool.some(fq => fq.id === q.id));
+        const additional = [...otherPool].sort(() => Math.random() - 0.5).slice(0, remainingNeeded);
+        finalPool = [...finalPool, ...additional];
+      }
+
+      if (finalPool.length === 0 && QUESTIONS.length > 0) {
+        finalPool = [QUESTIONS[Math.floor(Math.random() * QUESTIONS.length)]];
+      }
+
+      const shuffled = [...finalPool].sort(() => Math.random() - 0.5).slice(0, config.count);
+      shuffled.forEach(q => usedIds.add(q.id));
+      selectedQuestions.push(...shuffled);
+
+      const indices = Array.from({ length: shuffled.length }, (_, i) => i + currentIdxOffset);
+      if (indices.length > 0) {
+        subTests.push({
+          name: config.name,
+          questionIndices: indices,
+          timeLimit: config.time,
+          expiresAt: 0,
+        });
+        currentIdxOffset += shuffled.length;
+      }
+    });
+
+    return { selectedQuestions, subTests };
+  }, []);
+
+  // Timer logic for sub-tests and total exam timer
   const chooseAdaptiveQuestions = useCallback((pool: Question[], mode: 'daily' | 'mini' | 'drill15', category?: Category) => {
     const now = Date.now();
     const targetCount = RECOMMENDED_COUNTS[mode];
@@ -657,6 +710,7 @@ export function useQuiz() {
       timerRef.current = setInterval(() => {
         setSession(prev => {
           if (!prev || prev.isSubmitted || prev.currentSubTestIdx === undefined || !prev.subTests) return prev;
+          if (prev.totalExpiresAt && Date.now() >= prev.totalExpiresAt) return { ...prev, isSubmitted: true };
 
           const subTest = prev.subTests[prev.currentSubTestIdx];
           if (!subTest || subTest.expiresAt === 0 || Date.now() < subTest.expiresAt) return prev;
@@ -673,6 +727,7 @@ export function useQuiz() {
                 subTests: updatedSubTests,
                 currentSubTestIdx: nextIdx,
                 currentIdx: nextSubTest.questionIndices[0],
+                questionStartAt: Date.now(),
               };
             }
           }
@@ -684,7 +739,7 @@ export function useQuiz() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current as NodeJS.Timeout);
     };
-  }, [session?.mode, session?.isSubmitted, session?.currentSubTestIdx]);
+  }, [session?.mode, session?.isSubmitted, session?.currentSubTestIdx, session?.totalExpiresAt]);
 
   const startSession = useCallback((
     mode: QuizSession['mode'],
@@ -697,6 +752,9 @@ export function useQuiz() {
     const sourceBank = isStrictSimulation ? SIMULATION_QUESTION_BANK : QUESTIONS;
 
     if (mode === 'tryout' || mode === 'simulation') {
+      const fullExam = buildFullExamSession();
+      selectedQuestions = fullExam.selectedQuestions;
+      subTests = fullExam.subTests;
     if (mode === 'tryout' || isStrictSimulation) {
       // Full Tryout: All sub-tests
     let recommendations: QuizSession['recommendations'] = {};
@@ -900,6 +958,7 @@ export function useQuiz() {
     const finalSubTests = (mode === 'tryout' && subTests && subTests.length > 0)
       ? subTests.map((st, i) => i === 0 ? { ...st, expiresAt: Date.now() + st.timeLimit * 1000 } : st)
       : subTests;
+    const sessionStartAt = Date.now();
 
     let remedial: QuizSession['remedial'];
     if (options?.concept && options.remedialPhase) {
@@ -928,6 +987,16 @@ export function useQuiz() {
       currentIdx: 0,
       answers: {},
       marked: {},
+      startTime: sessionStartAt,
+      timePerQuestion: {},
+      isSubmitted: false,
+      subTests: mode === 'tryout' || mode === 'simulation' ? finalSubTests : undefined,
+      currentSubTestIdx: mode === 'tryout' || mode === 'simulation' ? 0 : undefined,
+      totalTimeLimitSec: mode === 'simulation' ? FULL_EXAM_TOTAL_TIME : undefined,
+      totalExpiresAt: mode === 'simulation' ? sessionStartAt + FULL_EXAM_TOTAL_TIME * 1000 : undefined,
+      questionStartAt: sessionStartAt,
+    });
+  }, [buildFullExamSession, progress]);
       answerTimeline: {},
       startTime: Date.now(),
       timePerQuestion: {},
@@ -976,6 +1045,7 @@ export function useQuiz() {
     if (!session || session.isSubmitted) return;
 
     const qId = session.questions[session.currentIdx].id;
+    if (session.mode === 'simulation' && session.answers[qId] !== undefined) return;
     setSession(prev => {
       if (!prev) return null;
       return {
@@ -1013,7 +1083,14 @@ export function useQuiz() {
         const lastIdxInSubTest = currentSubTest.questionIndices[currentSubTest.questionIndices.length - 1];
 
         if (prev.currentIdx < lastIdxInSubTest) {
-          return { ...prev, currentIdx: prev.currentIdx + 1 };
+          const elapsed = Math.max(1, Math.round((Date.now() - (prev.questionStartAt ?? Date.now())) / 1000));
+          const qId = prev.questions[prev.currentIdx].id;
+          return {
+            ...prev,
+            currentIdx: prev.currentIdx + 1,
+            questionStartAt: Date.now(),
+            timePerQuestion: { ...prev.timePerQuestion, [qId]: (prev.timePerQuestion[qId] ?? 0) + elapsed },
+          };
         }
       if (prev.subTests && prev.currentSubTestIdx !== undefined) {
         const currentSubTest = prev.subTests[prev.currentSubTestIdx];
@@ -1022,7 +1099,14 @@ export function useQuiz() {
         return prev;
       }
       if (prev.currentIdx >= prev.questions.length - 1) return prev;
-      return { ...prev, currentIdx: prev.currentIdx + 1 };
+      const elapsed = Math.max(1, Math.round((Date.now() - (prev.questionStartAt ?? Date.now())) / 1000));
+      const qId = prev.questions[prev.currentIdx].id;
+      return {
+        ...prev,
+        currentIdx: prev.currentIdx + 1,
+        questionStartAt: Date.now(),
+        timePerQuestion: { ...prev.timePerQuestion, [qId]: (prev.timePerQuestion[qId] ?? 0) + elapsed },
+      };
     });
   };
 
@@ -1052,7 +1136,14 @@ export function useQuiz() {
         const firstIdxInSubTest = currentSubTest.questionIndices[0];
 
         if (prev.currentIdx > firstIdxInSubTest) {
-          return { ...prev, currentIdx: prev.currentIdx - 1 };
+          const elapsed = Math.max(1, Math.round((Date.now() - (prev.questionStartAt ?? Date.now())) / 1000));
+          const qId = prev.questions[prev.currentIdx].id;
+          return {
+            ...prev,
+            currentIdx: prev.currentIdx - 1,
+            questionStartAt: Date.now(),
+            timePerQuestion: { ...prev.timePerQuestion, [qId]: (prev.timePerQuestion[qId] ?? 0) + elapsed },
+          };
         }
       if (prev.subTests && prev.currentSubTestIdx !== undefined) {
         const currentSubTest = prev.subTests[prev.currentSubTestIdx];
@@ -1060,6 +1151,15 @@ export function useQuiz() {
         if (prev.currentIdx > firstIdxInSubTest) return { ...prev, currentIdx: prev.currentIdx - 1 };
         return prev;
       }
+
+      const elapsed = Math.max(1, Math.round((Date.now() - (prev.questionStartAt ?? Date.now())) / 1000));
+      const qId = prev.questions[prev.currentIdx].id;
+      return {
+        ...prev,
+        currentIdx: prev.currentIdx - 1,
+        questionStartAt: Date.now(),
+        timePerQuestion: { ...prev.timePerQuestion, [qId]: (prev.timePerQuestion[qId] ?? 0) + elapsed },
+      };
       return { ...prev, currentIdx: prev.currentIdx - 1 };
     });
   };
@@ -1086,6 +1186,12 @@ export function useQuiz() {
   const submitQuiz = (): AssessmentReport | null => {
     if (!session || session.isSubmitted) return null;
 
+    const currentQid = session.questions[session.currentIdx]?.id;
+    const elapsedOnCurrent = Math.max(1, Math.round((Date.now() - (session.questionStartAt ?? Date.now())) / 1000));
+    const mergedTimePerQuestion = currentQid
+      ? { ...session.timePerQuestion, [currentQid]: (session.timePerQuestion[currentQid] ?? 0) + elapsedOnCurrent }
+      : session.timePerQuestion;
+
     const results = session.questions.map(q => ({
       id: q.id,
       correct: validateAnswer(q, session.answers[q.id]),
@@ -1094,6 +1200,7 @@ export function useQuiz() {
       concept: q.concept,
       question: q,
       irtParams: q.irtParams,
+      timeSpentSec: mergedTimePerQuestion[q.id] ?? 0,
       timeSpent: finalTimePerQuestion[q.id] || 0,
     }));
     const conceptStats = results.reduce((acc, result) => {
@@ -1292,6 +1399,7 @@ export function useQuiz() {
     const report: AssessmentReport = {
       id: `report-${Date.now()}`,
       date: new Date().toISOString(),
+      mode: session.mode === 'simulation' ? 'simulation' : 'practice',
       totalScore: irtScore,
       questionCount: session.questions.length,
       correctCount,
@@ -1303,6 +1411,20 @@ export function useQuiz() {
       percentile,
       materialMastery,
       recommendations,
+      examAnalytics: {
+        accuracy: Math.round((correctCount / (results.length || 1)) * 100),
+        speedPerQuestionSec: Math.round(results.reduce((acc, r) => acc + r.timeSpentSec, 0) / (results.length || 1)),
+        focusDrops: results
+          .filter(r => r.timeSpentSec > 0)
+          .sort((a, b) => b.timeSpentSec - a.timeSpentSec)
+          .slice(0, 5)
+          .map(r => ({
+            questionId: r.id,
+            concept: r.concept,
+            timeSpentSec: r.timeSpentSec,
+            isCorrect: r.correct,
+          })),
+      },
       simulationAnalysis: session.mode === 'simulation' ? (() => {
         const accuracy = Math.round((correctCount / (session.questions.length || 1)) * 100);
         const answered = results.filter(r => r.timeSpent > 0);
@@ -1782,6 +1904,8 @@ export function useQuiz() {
         materialMastery: aggregateMastery,
         reports: [mergedReport, ...prev.reports].slice(0, 10),
         materialMastery: { ...(prev.materialMastery ?? {}), ...materialMastery },
+        reports: session.mode === 'simulation' ? prev.reports : [report, ...prev.reports].slice(0, 10),
+        simulationReports: session.mode === 'simulation' ? [report, ...(prev.simulationReports ?? [])].slice(0, 10) : (prev.simulationReports ?? []),
         subTestHistory: updatedSubTestHistory,
         subTestHistory: [
           {
@@ -1841,6 +1965,7 @@ export function useQuiz() {
             subTests: updatedSubTests,
             currentSubTestIdx: nextIdx,
             currentIdx: nextSubTest.questionIndices[0],
+            questionStartAt: Date.now(),
             questionStartedAt: Date.now(),
           };
         }

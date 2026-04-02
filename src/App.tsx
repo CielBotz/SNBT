@@ -157,6 +157,106 @@ const QuestionArea = React.memo(({ question, session, answerQuestion }: {
   const prefersReducedMotion = useReducedMotion();
   const currentAnswer = session.answers[question.id];
   const isSubmitted = session.isSubmitted;
+  const simulationLocked = !isSubmitted && session.mode === 'simulation' && currentAnswer !== undefined;
+
+  const renderMultipleChoice = () => (
+    <div className="space-y-3">
+      {question.options?.map((option, idx) => {
+        const isSelected = currentAnswer === idx;
+        const isCorrect = question.correctAnswer === idx;
+        let optionClass = "w-full text-left p-5 rounded-2xl border-2 font-medium transition-all flex items-start gap-4";
+        if (isSubmitted) {
+          if (isCorrect) optionClass += " bg-green-50 border-green-400 text-green-800";
+          else if (isSelected && !isCorrect) optionClass += " bg-red-50 border-red-400 text-red-800";
+          else optionClass += " bg-slate-50 border-slate-200 text-slate-500";
+        } else {
+          if (isSelected) optionClass += " bg-indigo-50 border-indigo-400 text-indigo-800";
+          else optionClass += " bg-white border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/30 text-slate-700";
+        }
+        return (
+          <button key={idx} className={optionClass} onClick={() => !isSubmitted && !simulationLocked && answerQuestion(idx)} disabled={isSubmitted || simulationLocked}>
+            <span className="font-black text-xs mt-0.5 min-w-[20px]">{String.fromCharCode(65 + idx)}.</span>
+            <div className="prose prose-sm max-w-none"><ReactMarkdown>{option}</ReactMarkdown></div>
+            {isSubmitted && isCorrect && <CheckCircle2 size={18} className="ml-auto text-green-500 shrink-0 mt-0.5" />}
+            {isSubmitted && isSelected && !isCorrect && <XCircle size={18} className="ml-auto text-red-500 shrink-0 mt-0.5" />}
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const renderComplexMultipleChoice = () => {
+    const answers: boolean[] = Array.isArray(currentAnswer) ? currentAnswer : Array(question.complexOptions?.length ?? 0).fill(undefined);
+    return (
+      <div className="space-y-3">
+        <p className="text-xs text-slate-500 font-semibold uppercase tracking-widest">Pilih Benar/Salah untuk setiap pernyataan:</p>
+        {question.complexOptions?.map((opt, idx) => {
+          const userAnswer = answers[idx];
+          const isCorrect = opt.correct;
+          let rowClass = "p-5 rounded-2xl border-2 transition-all";
+          if (isSubmitted) {
+            rowClass += userAnswer === isCorrect ? " bg-green-50 border-green-300" : " bg-red-50 border-red-300";
+          } else {
+            rowClass += " bg-white border-slate-200";
+          }
+          return (
+            <div key={idx} className={rowClass}>
+              <div className="prose prose-sm max-w-none text-slate-700 mb-3"><ReactMarkdown>{opt.statement}</ReactMarkdown></div>
+              <div className="flex gap-3">
+                {[true, false].map((val) => {
+                  const label = val ? 'Benar' : 'Salah';
+                  const isSelected = userAnswer === val;
+                  let btnClass = "flex-1 py-2 rounded-xl font-bold text-sm border-2 transition-all";
+                  if (isSubmitted) {
+                    if (val === isCorrect) btnClass += " bg-green-500 border-green-500 text-white";
+                    else if (isSelected) btnClass += " bg-red-400 border-red-400 text-white";
+                    else btnClass += " bg-slate-100 border-slate-200 text-slate-400";
+                  } else {
+                    if (isSelected) btnClass += " bg-indigo-600 border-indigo-600 text-white";
+                    else btnClass += " bg-slate-100 border-slate-200 text-slate-600 hover:border-indigo-300";
+                  }
+                  return (
+                    <button key={String(val)} className={btnClass} disabled={isSubmitted || simulationLocked} onClick={() => {
+                      const newAnswers = [...answers];
+                      newAnswers[idx] = val;
+                      answerQuestion(newAnswers);
+                    }}>{label}</button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderShortAnswer = () => {
+    const isCorrect = isSubmitted && Number(currentAnswer) === question.shortAnswerCorrect;
+    return (
+      <div className="space-y-4">
+        <p className="text-xs text-slate-500 font-semibold uppercase tracking-widest">Masukkan jawaban angka:</p>
+        <input
+          type="number"
+          value={currentAnswer ?? ''}
+          onChange={(e) => !isSubmitted && answerQuestion(Number(e.target.value))}
+          disabled={isSubmitted || simulationLocked}
+          placeholder="Jawaban..."
+          className={cn(
+            "w-full p-5 rounded-2xl border-2 text-lg font-bold outline-none transition-all",
+            isSubmitted
+              ? isCorrect ? "bg-green-50 border-green-400 text-green-800" : "bg-red-50 border-red-400 text-red-800"
+              : "bg-white border-slate-200 focus:border-indigo-400 text-slate-800"
+          )}
+        />
+        {isSubmitted && (
+          <p className="text-sm font-semibold">
+            Jawaban benar: <span className="text-green-700 font-black">{question.shortAnswerCorrect}</span>
+          </p>
+        )}
+      </div>
+    );
+  };
 
   return (
     <motion.div key={question.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.25 }} className="space-y-8">
@@ -181,6 +281,12 @@ const QuestionArea = React.memo(({ question, session, answerQuestion }: {
       </div>
 
       <div>
+        {simulationLocked && (
+          <p className="text-xs font-bold text-violet-600 mb-3">Mode simulasi: jawaban terkunci setelah dipilih.</p>
+        )}
+        {question.type === 'multiple_choice' && renderMultipleChoice()}
+        {question.type === 'complex_multiple_choice' && renderComplexMultipleChoice()}
+        {question.type === 'short_answer' && renderShortAnswer()}
         {question.type === 'multiple_choice' && (
           <div className="space-y-3">
             {question.options?.map((option, idx) => {
@@ -376,6 +482,7 @@ export default function App() {
       case 'mini': return 'Mini Tryout';
       case 'daily': return 'Latihan Harian';
       case 'tryout': return 'Tryout Full';
+      case 'simulation': return 'Simulasi Ujian Penuh';
       case 'simulation': return 'Simulasi Premium';
       case 'simulation': return 'Simulasi Ketat';
       case 'category': return 'Latihan Kategori';
@@ -410,6 +517,7 @@ export default function App() {
 
   const currentQuestion = session?.questions[session.currentIdx];
   const isLastQuestion = session && session.currentIdx === session.questions.length - 1;
+  const isSimulationMode = session?.mode === 'simulation';
   const currentSubTest = session?.subTests && session.currentSubTestIdx !== undefined ? session.subTests[session.currentSubTestIdx] : null;
   const latestReport = progress.reports[0];
   const avgReadinessScore = progress.reports.length > 0
@@ -549,6 +657,10 @@ export default function App() {
               </button>
               <button 
                 onClick={() => handleStart('simulation')}
+                className="bg-violet-600 text-white px-10 py-5 rounded-[24px] font-black hover:bg-violet-500 transition-all shadow-xl shadow-violet-900/30 flex items-center gap-4 group text-sm uppercase tracking-widest"
+              >
+                Simulasi Ujian
+                <Clock size={20} className="group-hover:scale-110 transition-transform" />
                 className="bg-violet-600 text-white px-10 py-5 rounded-[24px] font-black hover:bg-violet-500 transition-all shadow-xl shadow-violet-900/40 flex items-center gap-4 group text-sm uppercase tracking-widest"
               >
                 Simulasi Premium
@@ -848,6 +960,7 @@ export default function App() {
             { id: 'simulation', title: 'Simulasi Ketat', desc: 'Mode ujian resmi: timer sub-tes, navigasi terbatas, bank soal terpisah.', icon: School, color: 'bg-slate-900', shadow: 'shadow-slate-300' },
             { id: 'mini', title: 'Mini Tryout', desc: '10 Soal campuran untuk latihan cepat 15 menit.', icon: Zap, color: 'bg-amber-500', shadow: 'shadow-amber-200' },
             { id: 'daily', title: 'Latihan Harian', desc: '5 Soal adaptif berdasarkan kelemahanmu.', icon: Target, color: 'bg-indigo-500', shadow: 'shadow-indigo-200' },
+            { id: 'simulation', title: 'Simulasi Ujian', desc: 'Mode ujian penuh dengan timer total + sub-tes.', icon: Clock, color: 'bg-violet-500', shadow: 'shadow-violet-200' },
             { id: 'simulation', title: 'Simulasi Premium', desc: 'CBT full dengan urutan sub-tes resmi, timer ketat, dan analisis panic zone.', icon: Trophy, color: 'bg-violet-600', shadow: 'shadow-violet-200' },
             { id: 'drill15', title: 'Targeted Drill 15 Menit', desc: 'Fokus otomatis ke 2-3 konsep terlemah dengan spaced repetition.', icon: AlertTriangle, color: 'bg-rose-500', shadow: 'shadow-rose-200' },
             { id: 'study', title: 'Belajar Mandiri', desc: 'Pahami konsep materi secara mendalam.', icon: BookOpen, color: 'bg-emerald-500', shadow: 'shadow-emerald-200' },
@@ -1000,6 +1113,20 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-10">
+            {isSimulationMode && session.totalExpiresAt && (
+              <div className="flex items-center gap-5 bg-rose-950/70 px-6 py-3 rounded-2xl border border-rose-900 shadow-inner">
+                <div className="flex flex-col items-center">
+                  <span className="text-[9px] font-black text-rose-300 uppercase tracking-widest mb-1">TOTAL UJIAN</span>
+                  <div className="flex items-center gap-3">
+                    <Clock size={20} className="text-rose-300" />
+                    <SubTestCountdown
+                      expiresAt={session.totalExpiresAt}
+                      onExpire={() => {}}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
             {currentSubTest && currentSubTest.expiresAt > 0 && (
               <div className="flex items-center gap-5 bg-[#0f172a] px-6 py-3 rounded-2xl border border-slate-800 shadow-inner">
                 <div className="flex flex-col items-center">
@@ -1018,6 +1145,7 @@ export default function App() {
             {!session.isSubmitted && (
               <button 
                 onClick={() => {
+                  if (session.currentSubTestIdx !== undefined && session.subTests && session.currentSubTestIdx < session.subTests.length - 1) {
                   if ((session.mode === 'tryout' || session.mode === 'simulation') && session.currentSubTestIdx !== undefined && session.subTests && session.currentSubTestIdx < session.subTests.length - 1) {
                     setShowSubTestConfirm(true);
                   } else {
@@ -1026,6 +1154,7 @@ export default function App() {
                 }}
                 className="ui-btn-warning px-10 py-3 rounded-2xl text-xs uppercase tracking-[0.2em] shadow-lg shadow-amber-900/20 active:scale-95"
               >
+                {session.currentSubTestIdx !== undefined && session.subTests && session.currentSubTestIdx < session.subTests.length - 1 
                 {(session.mode === 'tryout' || session.mode === 'simulation') && session.currentSubTestIdx !== undefined && session.subTests && session.currentSubTestIdx < session.subTests.length - 1 
                   ? 'SELESAI SUB-TES' 
                   : 'SELESAI UJIAN'}
@@ -1161,6 +1290,7 @@ export default function App() {
             <div className="bg-[#f8fafc] border-t border-slate-200 p-6 flex justify-between items-center sticky bottom-0">
               <button 
                 onClick={prevQuestion}
+                disabled={session.currentIdx === 0 || isSimulationMode}
                 disabled={session.currentIdx === 0 || isStrictSimulation}
                 className="flex items-center gap-3 px-8 py-3 bg-[#34495e] text-white font-bold rounded-xl disabled:opacity-30 hover:bg-[#2c3e50] transition-all shadow-md uppercase text-xs tracking-widest"
               >
@@ -1169,8 +1299,9 @@ export default function App() {
               
               <button 
                 onClick={toggleMark}
+                disabled={isSimulationMode}
                 className={cn(
-                  "flex items-center gap-3 px-10 py-3 rounded-xl font-black transition-all border-2 uppercase text-xs tracking-widest shadow-md",
+                  "flex items-center gap-3 px-10 py-3 rounded-xl font-black transition-all border-2 uppercase text-xs tracking-widest shadow-md disabled:opacity-40 disabled:cursor-not-allowed",
                   session.marked[currentQuestion.id] 
                     ? "bg-[#f1c40f] border-[#f1c40f] text-slate-900" 
                     : "bg-[#f39c12] border-[#f39c12] text-white hover:bg-[#e67e22]"
@@ -1224,12 +1355,16 @@ export default function App() {
                     <button
                       key={idx}
                       onClick={() => {
+                        if (isSimulationMode) return;
+                        setSession(prev => prev ? { ...prev, currentIdx: idx, questionStartAt: Date.now() } : null);
+                      }}
+                      disabled={isSimulationMode}
                         if (isStrictSimulation) return;
                         setSession(prev => prev ? { ...prev, currentIdx: idx } : null);
                       }}
                       disabled={isStrictSimulation}
                       className={cn(
-                        "aspect-square rounded-lg flex items-center justify-center text-xs font-black transition-all border-2 relative",
+                        "aspect-square rounded-lg flex items-center justify-center text-xs font-black transition-all border-2 relative disabled:opacity-70 disabled:cursor-not-allowed",
                         isCurrent ? "border-[#3498db] scale-110 z-10 shadow-lg" : "border-slate-200",
                         !showResult && isMarked ? "bg-[#f1c40f] border-[#f1c40f] text-slate-900" :
                         !showResult && isAnswered ? "bg-[#2ecc71] border-[#2ecc71] text-white" : "bg-white text-slate-400",
@@ -1264,6 +1399,14 @@ export default function App() {
                   </div>
                 </div>
               </div>
+              {isSimulationMode && (
+                <div className="bg-rose-50 p-5 rounded-2xl border border-rose-200 text-rose-800 space-y-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest">Aturan Simulasi</p>
+                  <ul className="text-xs font-semibold list-disc pl-4 space-y-1">
+                    <li>Tidak bisa kembali ke soal sebelumnya.</li>
+                    <li>Nomor soal tidak bisa dipilih manual.</li>
+                    <li>Jawaban yang sudah dipilih tidak bisa diubah.</li>
+                  </ul>
               {isStrictSimulation && (
                 <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl text-[11px] font-bold text-amber-900 uppercase tracking-wider">
                   Mode ketat aktif: hanya boleh maju, tidak bisa lompat nomor, dan penandaan ragu-ragu disimpan untuk evaluasi akhir.
@@ -1398,6 +1541,36 @@ export default function App() {
             </div>
           </div>
 
+          {selectedReport.mode === 'simulation' && selectedReport.examAnalytics && (
+            <div className="bg-white rounded-[40px] p-8 border border-violet-200 shadow-sm space-y-6">
+              <h3 className="text-xl font-black text-slate-900">Analitik Pasca-Simulasi</h3>
+              <div className="grid md:grid-cols-3 gap-4">
+                <div className="bg-violet-50 rounded-2xl p-5 border border-violet-100">
+                  <p className="text-[10px] uppercase tracking-widest font-black text-violet-500">Akurasi</p>
+                  <p className="text-3xl font-black text-violet-900">{selectedReport.examAnalytics.accuracy}%</p>
+                </div>
+                <div className="bg-indigo-50 rounded-2xl p-5 border border-indigo-100">
+                  <p className="text-[10px] uppercase tracking-widest font-black text-indigo-500">Kecepatan</p>
+                  <p className="text-3xl font-black text-indigo-900">{selectedReport.examAnalytics.speedPerQuestionSec}s/soal</p>
+                </div>
+                <div className="bg-rose-50 rounded-2xl p-5 border border-rose-100">
+                  <p className="text-[10px] uppercase tracking-widest font-black text-rose-500">Drop Fokus</p>
+                  <p className="text-3xl font-black text-rose-900">{selectedReport.examAnalytics.focusDrops.length} titik</p>
+                </div>
+              </div>
+              <div className="space-y-3">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-500">Top titik drop fokus (waktu terlama)</p>
+                {selectedReport.examAnalytics.focusDrops.map((drop, idx) => (
+                  <div key={`${drop.questionId}-${idx}`} className="flex items-center justify-between bg-slate-50 rounded-xl p-3 border border-slate-200">
+                    <div>
+                      <p className="font-bold text-slate-800 text-sm">{drop.concept}</p>
+                      <p className="text-xs text-slate-500">Soal ID: {drop.questionId}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-black text-slate-900">{drop.timeSpentSec} detik</p>
+                      <p className={cn("text-xs font-bold", drop.isCorrect ? "text-emerald-600" : "text-rose-600")}>
+                        {drop.isCorrect ? 'Benar' : 'Salah'}
+                      </p>
           {selectedReport.readinessBySubTest && selectedReport.readinessBySubTest.length > 0 && (
             <div className="bg-white rounded-[56px] p-10 border border-slate-200 shadow-sm space-y-6">
               <h3 className="text-2xl font-black text-slate-900">Indikator Readiness per Subtes</h3>
@@ -1910,6 +2083,28 @@ export default function App() {
                     <p className="text-slate-400 font-bold">Belum ada riwayat tes.</p>
                   </div>
                 )}
+              </div>
+              <div className="pt-2">
+                <h4 className="font-black text-slate-700 text-sm">Riwayat Simulasi Ujian</h4>
+                <div className="space-y-3 mt-3">
+                  {progress.simulationReports.length > 0 ? progress.simulationReports.map((report) => (
+                    <button
+                      key={report.id}
+                      onClick={() => handleViewReport(report)}
+                      className="w-full p-5 rounded-2xl bg-violet-50 border border-violet-100 flex items-center justify-between group hover:bg-violet-100 transition-all"
+                    >
+                      <div className="text-left">
+                        <p className="text-xs font-bold text-violet-500 uppercase tracking-widest">
+                          {new Date(report.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
+                        </p>
+                        <p className="font-black text-violet-900">Skor: {Math.round(report.totalScore)}</p>
+                      </div>
+                      <ChevronRight size={20} className="text-violet-300 group-hover:text-violet-500 transition-colors" />
+                    </button>
+                  )) : (
+                    <p className="text-xs text-slate-400 font-semibold">Belum ada simulasi tersimpan.</p>
+                  )}
+                </div>
               </div>
             </div>
           </div>

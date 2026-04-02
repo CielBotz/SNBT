@@ -199,6 +199,7 @@ export interface UserProgress {
   categoryStats: { [key in Category]: { correct: number; total: number } };
   currentDifficulty: Difficulty;
   reports: AssessmentReport[];
+  simulationReports: AssessmentReport[];
   materialMastery: { [concept: string]: { correct: number; total: number } };
   materialMastery: { [concept: string]: number }; // 0-100 per concept
   subTestHistory: { [subTestName: string]: SubTestHistoryEntry[] };
@@ -303,6 +304,7 @@ export type ReadinessLevel = 'Aman' | 'Waspada' | 'Kritis';
 export interface AssessmentReport {
   id: string;
   date: string;
+  mode: 'practice' | 'simulation';
   totalScore: number; // IRT Score (0-1000)
   questionCount?: number;
   correctCount?: number;
@@ -326,6 +328,16 @@ export interface AssessmentReport {
     prodi: string;
     chance: number; // 0-100
   }[];
+  examAnalytics?: {
+    accuracy: number;
+    speedPerQuestionSec: number;
+    focusDrops: {
+      questionId: string;
+      concept: string;
+      timeSpentSec: number;
+      isCorrect: boolean;
+    }[];
+  };
   simulationAnalysis?: SimulationAnalysis;
   readinessIndex: number;
   trendSessions: number;
@@ -408,6 +420,9 @@ export interface QuizSession {
     expiresAt: number; // absolute timestamp (ms) when this sub-test timer expires; 0 = not yet started
   }[];
   currentSubTestIdx?: number;
+  totalTimeLimitSec?: number;
+  totalExpiresAt?: number;
+  questionStartAt?: number;
   recommendation?: {
     generatedAt: number;
     mode: 'daily' | 'mini' | 'drill15';
